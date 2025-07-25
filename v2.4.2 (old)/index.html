@@ -1,0 +1,2202 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Pixel RGB Tool – Full Screen with Hough Controls</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #333;
+            overflow: hidden;
+        }
+
+        /* Container fills the entire viewport */
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+
+        /* The canvas fills the container */
+        #videoCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Regression Studio container - FIX 7: More compact */
+        #regressionTab .studio-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+            background: rgba(40, 40, 40, 0.95);
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+        }
+
+        /* FIX 7: Compact controls */
+        #regressionTab .controls {
+            text-align: center;
+            margin: 15px 0;
+        }
+
+        /* FIX 6: Better color scheme - blue/teal instead of orange */
+        #regressionTab .controls button {
+            margin: 0 8px;
+            padding: 8px 16px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: none;
+            color: #fff;
+            font-size: 0.9rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all .2s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        #regressionTab .controls button:hover {
+            background: linear-gradient(145deg, #357abd, #2a5f8f);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        #regressionTab .studio-container * {
+            color: #eee;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        /* FIX 7: Compact headings */
+        #regressionTab h2 {
+            text-align: center;
+            margin: 0 0 15px 0;
+            font-size: 1.5rem;
+        }
+
+        #regressionTab h3 {
+            margin: 10px 0 8px 0;
+            font-size: 1.1rem;
+        }
+
+        #regressionTable th,
+        #regressionTable td {
+            padding: 6px 8px;
+            text-align: center;
+        }
+
+        /* FIX 6: Better button styling */
+        #regressionTab button {
+            border-radius: 4px;
+            transition: all .2s;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: none;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        #regressionTab button:hover {
+            background: linear-gradient(145deg, #357abd, #2a5f8f);
+        }
+
+        /* FIX 7: Compact table layout */
+        #regressionTab .table-wrapper {
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 350px;
+            margin-bottom: 15px;
+            border: 1px solid #555;
+            border-radius: 6px;
+        }
+
+        #regressionTable {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+
+        /* FIXED: Removed CSV column - adjusted widths */
+        #regressionTable th:nth-child(1) {
+            width: 15%;
+        }
+
+        #regressionTable th:nth-child(2) {
+            width: 30%;
+        }
+
+        #regressionTable th:nth-child(3) {
+            width: 20%;
+        }
+
+        #regressionTable th:nth-child(4) {
+            width: 25%;
+        }
+
+        #regressionTable th:nth-child(5) {
+            width: 10%;
+        }
+
+        #regressionTable th,
+        #regressionTable td {
+            border: 1px solid #555;
+            padding: 6px;
+            word-wrap: break-word;
+        }
+
+        #regressionTable th {
+            background: #444;
+            font-weight: bold;
+        }
+
+        /* FIX 5: Fix input styling */
+        #regressionTable input[type="number"] {
+            width: 80px;
+            padding: 4px;
+            border: 1px solid #777;
+            border-radius: 3px;
+            background: #fff;
+            color: #000;
+            font-size: 14px;
+        }
+
+        /* Species icon styling */
+        .species-icon {
+            width: 35px;
+            height: 35px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            display: block;
+            margin: 0 auto;
+        }
+
+        /* FIX 3: CSV download button styling */
+        .csv-download-btn {
+            background: linear-gradient(145deg, #28a745, #1e7e34) !important;
+            padding: 4px 8px !important;
+            font-size: 12px !important;
+            margin: 0 !important;
+            border-radius: 3px !important;
+            display: inline-block;
+            text-decoration: none;
+            color: #fff !important;
+            cursor: pointer;
+            transition: all .2s;
+        }
+
+        .csv-download-btn:hover {
+            background: linear-gradient(145deg, #218838, #1a6e2b) !important;
+            transform: translateY(-1px);
+        }
+
+        /* Delete button styling */
+        .delete-point {
+            background: linear-gradient(145deg, #dc3545, #c82333) !important;
+            padding: 4px 8px !important;
+            font-size: 12px !important;
+            margin: 0 !important;
+            border-radius: 3px !important;
+            color: #fff !important;
+            cursor: pointer;
+            transition: all .2s;
+        }
+
+        .delete-point:hover {
+            background: linear-gradient(145deg, #c82333, #a71e2a) !important;
+            transform: translateY(-1px);
+        }
+
+        /* Quiz-style color mode selector (bottom left) */
+        #colorQuiz {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(50, 50, 50, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 999;
+        }
+
+        .quiz-option {
+            display: inline-block;
+            margin: 0 10px;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+
+        .quiz-circle {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #eee;
+            border-radius: 50%;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+
+        .selected {
+            background-color: #4a90e2;
+        }
+
+        /* Hough circle parameter controls (top right) */
+        #houghControls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+
+        #houghControls .control {
+            margin-bottom: 10px;
+        }
+
+        #houghControls .control label {
+            display: inline-block;
+        }
+
+        #houghControls .control input[type="number"] {
+            width: 40px;
+            margin-left: 5px;
+            font-size: 14px;
+            padding: 2px;
+            background: transparent;
+            border: 1px solid #555;
+            color: #eee;
+        }
+
+        #houghControls .control input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none;
+            margin-top: 3px;
+            padding: 0;
+        }
+
+        /* Floating error message (centered) */
+        #noCirclesMsg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 24px;
+            display: none;
+            pointer-events: none;
+            animation: floatIn 0.5s ease-out;
+        }
+
+        @keyframes floatIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, calc(-50% + 50px));
+            }
+
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        /* Hidden file input */
+        #fileInput {
+            display: none;
+        }
+
+        /* Left side box for shapes info */
+        #circleInfo {
+            position: absolute;
+            top: 200px;
+            left: 10px;
+            background: rgba(50, 50, 50, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            max-width: 250px;
+        }
+
+        #circleInfo h3 {
+            margin: 0;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+
+        #circleInfo ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #circleInfo li {
+            margin-bottom: 5px;
+        }
+
+        /* Right side box for shape removal */
+        #removeCircleBox {
+            position: absolute;
+            top: 300px;
+            right: 10px;
+            background: rgba(50, 50, 50, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+
+        .info-btn {
+            background: none;
+            border: none;
+            color: #eee;
+            cursor: pointer;
+            font-size: 16px;
+            margin-left: 5px;
+        }
+
+        .info-popup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            z-index: 10000;
+        }
+
+        /* FIX 7: Compact charts container */
+        #multipleChartsContainer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+
+        .regression-chart {
+            border: 1px solid #555;
+            border-radius: 5px;
+        }
+
+        .chart-title {
+            text-align: center;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #eee;
+        }
+
+        /* FIX 1 & 7: Better image management */
+        #imageManagement {
+            background: rgba(60, 60, 60, 0.9);
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .image-thumbnail {
+            width: 80px;
+            height: 50px;
+            object-fit: contain;
+            /* FIX 1: Changed from cover to contain */
+            border: 2px solid #555;
+            border-radius: 4px;
+            margin: 3px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+            background: #222;
+            /* FIX 1: Add background for letterboxing */
+        }
+
+        .image-thumbnail:hover {
+            border-color: #4a90e2;
+        }
+
+        .image-thumbnail.active {
+            border-color: #4af;
+        }
+
+        /* FIX 6: Better styled buttons */
+        #addImagesBtn {
+            padding: 6px 12px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: none;
+            color: #eee;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: all .2s;
+        }
+
+        #addImagesBtn:hover {
+            background: linear-gradient(145deg, #357abd, #2a5f8f);
+            transform: translateY(-1px);
+        }
+
+        /* Chart selector dropdown */
+        #chartSelector,
+        #bestR2Selector {
+            padding: 6px;
+            margin-left: 8px;
+            background: #333;
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        /* Color mode toggle button */
+        #toggleColorMode {
+            padding: 6px 12px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: none;
+            color: #eee;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            transition: all .2s;
+        }
+
+        #toggleColorMode:hover {
+            background: linear-gradient(145deg, #357abd, #2a5f8f);
+            transform: translateY(-1px);
+        }
+
+        /* FIX 7: Compact layout */
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .predict-section {
+            text-align: center;
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(60, 60, 60, 0.5);
+            border-radius: 5px;
+        }
+
+        #predictShapeSelect {
+            padding: 4px;
+            border-radius: 4px;
+            background: #333;
+            color: #eee;
+            border: 1px solid #555;
+            margin-right: 8px;
+        }
+
+        #predictBtn {
+            padding: 4px 12px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #predictOutput {
+            text-align: center;
+            font-size: 14px;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+        }
+
+        /* ISSUE 3: Best R² selector styling */
+        #bestR2Section {
+            text-align: center;
+            margin: 15px 0;
+            padding: 10px;
+            background: rgba(0, 150, 0, 0.1);
+            border-radius: 5px;
+            border: 1px solid #4a90e2;
+            display: none;
+        }
+
+        #bestR2Section.visible {
+            display: block;
+        }
+
+        .best-r2-highlight {
+            background: rgba(255, 215, 0, 0.1) !important;
+            border: 2px solid #ffd700 !important;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Tab navigation -->
+    <div id="tabNav" style="position:absolute; top:0; left:0; width:100%; background:#222; z-index:1000; display:flex;">
+        <button id="tabDetectBtn" class="tab-btn selected"
+            style="flex:1; padding:10px; color:#eee; background:none; border:none; cursor:pointer;">Detect</button>
+        <button id="tabRegressionBtn" class="tab-btn"
+            style="flex:1; padding:10px; color:#aaa; background:none; border:none; cursor:pointer;">Regression
+            Studio</button>
+    </div>
+
+    <!-- Detection Tab -->
+    <div id="detectTab" style="position:absolute; top:40px; left:0; right:0; bottom:0;">
+        <div id="container">
+            <canvas id="videoCanvas"></canvas>
+
+            <!-- Quiz-style color mode selector (bottom left) -->
+            <div id="colorQuiz">
+                <span>Select Color Mode:</span>
+                <span class="quiz-option" id="quizRGB">
+                    <span class="quiz-circle" id="circleRGB"></span>RGB
+                </span>
+                <span class="quiz-option" id="quizCMYK">
+                    <span class="quiz-circle" id="circleCMYK"></span>CMYK
+                </span>
+            </div>
+
+            <!-- Hough circle parameter controls (top right) -->
+            <div id="houghControls">
+                <div class="control">
+                    <label>Param1
+                        <input type="number" id="param1Val" min="10" max="200" value="30" step="1">
+                        <button class="info-btn" onclick="showInfo('param1')">ℹ</button>
+                    </label>
+                    <input type="range" id="param1Range" min="10" max="200" value="30" step="1">
+                </div>
+                <div class="control">
+                    <label>Param2
+                        <input type="number" id="param2Val" min="10" max="100" value="40" step="1">
+                        <button class="info-btn" onclick="showInfo('param2')">ℹ</button>
+                    </label>
+                    <input type="range" id="param2Range" min="10" max="100" value="40" step="1">
+                </div>
+
+                <!-- Info popup -->
+                <div id="infoPopup" class="info-popup" style="display: none;">
+                    <p id="infoText"></p>
+                    <button onclick="closeInfo()">Close</button>
+                </div>
+
+                <div class="control">
+                    <label>Min Radius:
+                        <input type="number" id="minRadiusVal" min="1" max="300" value="10" step="1">
+                    </label>
+                    <input type="range" id="minRadiusRange" min="1" max="300" value="10" step="1">
+                </div>
+                <div class="control">
+                    <label>Max Radius:
+                        <input type="number" id="maxRadiusVal" min="10" max="300" value="70" step="1">
+                    </label>
+                    <input type="range" id="maxRadiusRange" min="10" max="300" value="70" step="1">
+                </div>
+                <div class="control">
+                    <label>Restricted Area (%):
+                        <input type="number" id="restrictedAreaVal" min="1" max="100" value="70" step="1">
+                    </label>
+                    <input type="range" id="restrictedAreaRange" min="1" max="100" value="70" step="1">
+                </div>
+            </div>
+
+            <!-- Floating error message -->
+            <div id="noCirclesMsg">No circles detected</div>
+
+            <!-- Left side box for shapes info -->
+            <div id="circleInfo">
+                <h3>Shapes Info</h3>
+                <ul id="circleList"></ul>
+            </div>
+
+            <!-- Right side box for shape removal -->
+            <div id="removeCircleBox">
+                <label for="circleSelect">Remove Shape:</label>
+                <select id="circleSelect"></select>
+                <button id="removeCircleButton">Remove</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Regression Studio tab -->
+    <div id="regressionTab"
+        style="display:none; position:absolute; top:40px; left:0; right:0; bottom:0; background:#333; color:#eee; overflow:auto; padding:15px;">
+        <div class="studio-container">
+            <h2>Regression Studio</h2>
+
+            <!-- Image Management Section -->
+            <div id="imageManagement">
+                <h3>Image Management</h3>
+                <div id="imageThumbnails"></div>
+                <button id="addImagesBtn">Add Images</button>
+            </div>
+
+            <!-- FIX 7: Compact controls section -->
+            <div class="table-controls">
+                <div>
+                    <button id="toggleColorMode">
+                        Toggle Color Mode (Currently: <span id="currentColorMode">RGB</span>)
+                    </button>
+                </div>
+                <div>
+                    <label for="chartSelector">Chart Display:</label>
+                    <select id="chartSelector">
+                        <option value="all">All Charts</option>
+                        <option value="red">Red</option>
+                        <option value="green">Green</option>
+                        <option value="blue">Blue</option>
+                        <option value="cyan">Cyan</option>
+                        <option value="magenta">Magenta</option>
+                        <option value="yellow">Yellow</option>
+                        <option value="total">Total Magnitude</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- ISSUE 2: Fixed table structure - removed CSV column -->
+            <div class="table-wrapper">
+                <table id="regressionTable">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Color <button class="csv-download-btn" id="downloadCSV">↓ CSV</button></th>
+                            <th>Known M</th>
+                            <th>Species</th>
+                            <th>Delete</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- ISSUE 3: Best R² Selection Section -->
+            <div id="bestR2Section">
+                <h4>🏆 Best Model Selection</h4>
+                <label for="bestR2Selector">Select Best R² Model:</label>
+                <select id="bestR2Selector">
+                    <option value="">No models available</option>
+                </select>
+                <button id="applyBestR2">Apply Best Model</button>
+                <div id="bestR2Info" style="margin-top: 10px; font-size: 14px;"></div>
+            </div>
+
+            <!-- FIX 7: Compact predict section -->
+            <div class="predict-section">
+                <select id="predictShapeSelect"></select>
+                <button id="predictBtn">Predict</button>
+                <div id="predictOutput"></div>
+            </div>
+
+            <!-- FIX 4: Removed commit data button -->
+            <div class="controls">
+                <button id="runRegressionBtn">Run Regression</button>
+                <button id="exportModelBtn">Export Model</button>
+                <button id="importModelBtn">Import Model</button>
+            </div>
+
+            <label style="display:inline-block; margin-bottom:5px;">
+                <input type="checkbox" id="toggleR2" unchecked>
+                    Show R² on Regression Line
+
+            </label>
+            <div id="regressionOutput" style="margin-top:10px; font-family:monospace; font-size:13px;"></div>
+
+            <!-- Multiple Charts Container -->
+            <div id="multipleChartsContainer">
+                <div>
+                    <div class="chart-title">Red</div>
+                    <canvas id="redChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Green</div>
+                    <canvas id="greenChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Blue</div>
+                    <canvas id="blueChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Cyan</div>
+                    <canvas id="cyanChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Magenta</div>
+                    <canvas id="magentaChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Yellow</div>
+                    <canvas id="yellowChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Total Magnitude</div>
+                    <canvas id="totalChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file input for opening images -->
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <input type="file" id="importModelInput" accept=".json" style="display:none;">
+
+    <script>
+        // Info popup functions
+        function showInfo(param) {
+            let text = param === 'param1'
+                ? "A higher param1 value makes the edge detection more strict, meaning only the sharpest, most well-defined circles will be detected."
+                : "A higher param2 value means the system needs more confidence to declare something a circle. It filters out uncertain detections and only accepts strong, well-formed circles.";
+            document.getElementById('infoText').textContent = text;
+            document.getElementById('infoPopup').style.display = 'block';
+        }
+
+        function closeInfo() {
+            document.getElementById('infoPopup').style.display = 'none';
+        }
+
+        // Global state variables
+        let video = document.createElement('video');
+        video.setAttribute('autoplay', true);
+        video.setAttribute('playsinline', true);
+        let canvas = document.getElementById('videoCanvas');
+        let ctx = canvas.getContext('2d');
+        let fileInput = document.getElementById('fileInput');
+        let committedData = JSON.parse(localStorage.getItem('committedData') || '[]');
+        let imageMode = false;
+        let loadedImages = [];
+        let currentImageIndex = 0;
+        let streaming = false;
+        let regressionModels = {};
+
+
+        // Drawing mode: "rectangle" or "circle"
+        let selectionMode = "rectangle";
+        let currentDrag = null;
+        let currentShape = null;
+
+        // FIX 1: Image-specific shape management
+        let shapesByImage = {}; // Object to store shapes for each image
+        let shapes = []; // Current image's shapes (for compatibility)
+        let shapeIdCounter = 0;
+
+        // Track current mouse position (for cursor color sampling)
+        let currentMousePos = { x: 0, y: 0 };
+
+        // Color mode – "RGB" or "CMYK"
+        let colorMode = "RGB";
+
+        // FIX 5: Regression studio color mode
+        let regressionStudioColorMode = "RGB";
+
+        // Chart drawing variables
+        let lastPts = [];
+        let lastToX = null;
+        let lastToY = null;
+
+        // ISSUE 3: Best R² tracking
+        let bestR2Model = null;
+        let r2Rankings = [];
+
+        // Add these new variables after the existing global variables
+        let imageShapeCounters = {}; // Track shape count per image
+        let imageLabelRanges = {}; // Track label ranges used per image
+
+        // FIX 1: Get current image key
+        function getCurrentImageKey() {
+            return imageMode ? `image_${currentImageIndex}` : 'camera';
+        }
+
+        // FIX 1: Update shapes when switching images
+        function updateCurrentShapes() {
+            const imageKey = getCurrentImageKey();
+            if (!shapesByImage[imageKey]) {
+                shapesByImage[imageKey] = [];
+            }
+            shapes = shapesByImage[imageKey];
+        }
+
+        // Returns a stable label for a shape given its unique id
+        function getLabel(id) {
+            const english = "abcdefghijklmnopqrstuvwxyz";
+            const greek = "αβγδεζηθικλμνξοπρστυφχψω";
+            const arabic = "ابتثجحخدذرزسشصضطظعغفقكلمنهوي";
+            const credits = ["Made by Grady Chen and Hassaan Vani from Shenendehowa (that's right you're taking sofware from a bunch of sophmores)"];
+
+            if (id < english.length) return english[id];
+            else if (id < english.length + greek.length) return greek[id - english.length];
+            else if (id < english.length + greek.length + arabic.length) return arabic[id - english.length - greek.length];
+            else if (id < english.length + greek.length + arabic.length + credits.length) return credits[id - english.length - greek.length - arabic.length];
+            else return "?" + id;
+        }
+
+        // OpenCV ready callback
+        function onOpenCvReady() {
+            console.log("OpenCV.js is ready.");
+            startVideo();
+        }
+
+        function startVideo() {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(function (stream) {
+                    video.srcObject = stream;
+                    video.play();
+                })
+                .catch(function (err) {
+                    console.error("Error accessing webcam: " + err);
+                });
+
+            video.addEventListener('canplay', function () {
+                if (!streaming) {
+                    streaming = true;
+                    canvas.width = document.getElementById('container').clientWidth;
+                    canvas.height = document.getElementById('container').clientHeight;
+                    // FIX 1: Initialize current shapes
+                    updateCurrentShapes();
+                    requestAnimationFrame(mainLoop);
+                }
+            });
+        }
+
+        // Returns canvas coordinates
+        function getMappedCoordinates(e) {
+            let rect = canvas.getBoundingClientRect();
+            let x = Math.floor(e.clientX - rect.left);
+            let y = Math.floor(e.clientY - rect.top);
+            return [x, y];
+        }
+
+        function drawImageWithAspect(ctx, img, canvasWidth, canvasHeight) {
+            let imgWidth = img.videoWidth || img.width;
+            let imgHeight = img.videoHeight || img.height;
+            let imgAspect = imgWidth / imgHeight;
+            let canvasAspect = canvasWidth / canvasHeight;
+            let drawWidth, drawHeight, offsetX, offsetY;
+
+            if (imgAspect > canvasAspect) {
+                drawWidth = canvasWidth;
+                drawHeight = canvasWidth / imgAspect;
+                offsetX = 0;
+                offsetY = (canvasHeight - drawHeight) / 2;
+            } else {
+                drawHeight = canvasHeight;
+                drawWidth = canvasHeight * imgAspect;
+                offsetY = 0;
+                offsetX = (canvasWidth - drawWidth) / 2;
+            }
+
+            ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+            return { offsetX, offsetY, scale: drawWidth / imgWidth };
+        }
+
+        function getCurrentFrame() {
+            let tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            let tempCtx = tempCanvas.getContext('2d');
+
+            if (imageMode && loadedImages.length > 0) {
+                drawImageWithAspect(tempCtx, loadedImages[currentImageIndex], tempCanvas.width, tempCanvas.height);
+            } else {
+                drawImageWithAspect(tempCtx, video, tempCanvas.width, tempCanvas.height);
+            }
+
+            return tempCanvas;
+        }
+
+        // FIX 2: Get frame from specific image
+        function getFrameFromImage(imageIndex) {
+            let tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            let tempCtx = tempCanvas.getContext('2d');
+
+            if (imageIndex >= 0 && imageIndex < loadedImages.length) {
+                drawImageWithAspect(tempCtx, loadedImages[imageIndex], tempCanvas.width, tempCanvas.height);
+            } else {
+                drawImageWithAspect(tempCtx, video, tempCanvas.width, tempCanvas.height);
+            }
+
+            return tempCanvas;
+        }
+
+        function computeAverageForRectangle(rect) {
+            let frameCanvas = getCurrentFrame();
+            let tempCtx = frameCanvas.getContext('2d');
+            let data = tempCtx.getImageData(0, 0, frameCanvas.width, frameCanvas.height).data;
+            let [x1, y1, x2, y2] = rect;
+            let sum = [0, 0, 0], count = 0;
+
+            for (let y = y1; y < y2; y++) {
+                for (let x = x1; x < x2; x++) {
+                    let idx = (y * frameCanvas.width + x) * 4;
+                    sum[0] += data[idx];
+                    sum[1] += data[idx + 1];
+                    sum[2] += data[idx + 2];
+                    count++;
+                }
+            }
+
+            if (count === 0) return [0, 0, 0];
+            return sum.map(v => Math.round(v / count));
+        }
+
+        function computeAverageForCircle(circle) {
+            let frameCanvas = getCurrentFrame();
+            let tempCtx = frameCanvas.getContext('2d');
+            let data = tempCtx.getImageData(0, 0, frameCanvas.width, frameCanvas.height).data;
+            let [cx, cy, r] = circle;
+
+            let sliderElem = document.getElementById('restrictedAreaVal');
+            let restrictedPercentage = sliderElem ? parseInt(sliderElem.value, 10) : 100;
+            if (isNaN(restrictedPercentage)) {
+                restrictedPercentage = 100;
+            }
+            let effectiveRadius = r * (restrictedPercentage / 100);
+
+            let sum = [0, 0, 0], count = 0;
+            for (let y = Math.max(0, Math.floor(cy - effectiveRadius));
+                y < Math.min(frameCanvas.height, Math.floor(cy + effectiveRadius)); y++) {
+                for (let x = Math.max(0, Math.floor(cx - effectiveRadius));
+                    x < Math.min(frameCanvas.width, Math.floor(cx + effectiveRadius)); x++) {
+                    let dx = x - cx, dy = y - cy;
+                    if (dx * dx + dy * dy <= effectiveRadius * effectiveRadius) {
+                        let idx = (y * frameCanvas.width + x) * 4;
+                        sum[0] += data[idx];
+                        sum[1] += data[idx + 1];
+                        sum[2] += data[idx + 2];
+                        count++;
+                    }
+                }
+            }
+
+            if (count === 0) return [0, 0, 0];
+            return sum.map(v => Math.round(v / count));
+        }
+
+        // FIX 2: Generate species icon from correct image
+        function generateSpeciesIcon(shape) {
+            let tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 40;
+            tempCanvas.height = 40;
+            let tempCtx = tempCanvas.getContext('2d');
+
+            // FIX 2: Get the correct image source
+            let sourceCanvas;
+            if (shape.imageKey && shape.imageKey.startsWith('image_')) {
+                const imageIndex = parseInt(shape.imageKey.split('_')[1]);
+                sourceCanvas = getFrameFromImage(imageIndex);
+            } else {
+                sourceCanvas = getCurrentFrame();
+            }
+            let sourceCtx = sourceCanvas.getContext('2d');
+
+            if (shape.type === "rectangle") {
+                let [x1, y1, x2, y2] = shape.coords;
+                let width = x2 - x1;
+                let height = y2 - y1;
+                let sourceData = sourceCtx.getImageData(x1, y1, width, height);
+
+                // Scale to fit 40x40
+                let scale = Math.min(40 / width, 40 / height);
+                let scaledWidth = width * scale;
+                let scaledHeight = height * scale;
+                let offsetX = (40 - scaledWidth) / 2;
+                let offsetY = (40 - scaledHeight) / 2;
+
+                tempCtx.putImageData(sourceData, 0, 0);
+                let scaledCanvas = document.createElement('canvas');
+                scaledCanvas.width = scaledWidth;
+                scaledCanvas.height = scaledHeight;
+                let scaledCtx = scaledCanvas.getContext('2d');
+                scaledCtx.drawImage(tempCanvas, 0, 0, width, height, 0, 0, scaledWidth, scaledHeight);
+
+                tempCtx.clearRect(0, 0, 40, 40);
+                tempCtx.drawImage(scaledCanvas, offsetX, offsetY);
+
+            } else if (shape.type === "circle") {
+                let [cx, cy, r] = shape.coords;
+                let diameter = r * 2;
+                let sourceData = sourceCtx.getImageData(cx - r, cy - r, diameter, diameter);
+
+                // Scale to fit 40x40
+                let scale = Math.min(40 / diameter, 40 / diameter);
+                let scaledSize = diameter * scale;
+                let offset = (40 - scaledSize) / 2;
+
+                tempCtx.putImageData(sourceData, 0, 0);
+                let scaledCanvas = document.createElement('canvas');
+                scaledCanvas.width = scaledSize;
+                scaledCanvas.height = scaledSize;
+                let scaledCtx = scaledCanvas.getContext('2d');
+                scaledCtx.drawImage(tempCanvas, 0, 0, diameter, diameter, 0, 0, scaledSize, scaledSize);
+
+                tempCtx.clearRect(0, 0, 40, 40);
+                tempCtx.drawImage(scaledCanvas, offset, offset);
+            }
+
+            return tempCanvas.toDataURL();
+        }
+
+        // Returns CMYK from an RGB array
+        function rgbToCmyk(rgb) {
+            let [r, g, b] = rgb;
+            if (r === 0 && g === 0 && b === 0) return [0, 0, 0, 100];
+            let rNorm = r / 255, gNorm = g / 255, bNorm = b / 255;
+            let k = 1 - Math.max(rNorm, gNorm, bNorm);
+            let c = (1 - rNorm - k) / (1 - k);
+            let m = (1 - gNorm - k) / (1 - k);
+            let y = (1 - bNorm - k) / (1 - k);
+            return [Math.round(c * 100), Math.round(m * 100), Math.round(y * 100), Math.round(k * 100)];
+        }
+
+        // Draw all finalized shapes and the one being drawn
+        function drawSelections(ctx) {
+            let removalSelect = document.getElementById('circleSelect');
+            let selectedLabel = removalSelect ? removalSelect.value : null;
+
+            shapes.forEach(shape => {
+                let label = shape.label;
+                if (shape.type === "rectangle") {
+                    let [x1, y1, x2, y2] = shape.coords;
+                    ctx.fillStyle = "rgba(50,200,50,0.2)";
+                    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+                    ctx.strokeStyle = "rgb(0,255,100)";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+                    let colorText = (colorMode === "CMYK") ?
+                        `CMYK: ${rgbToCmyk(shape.color).join(', ')}` :
+                        `RGB: ${shape.color.join(', ')}`;
+                    let text = `${label}: ${colorText}`;
+                    ctx.font = "18px Arial";
+                    ctx.fillStyle = `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})`;
+                    ctx.fillText(text, x1, y1 - 10);
+
+                    if (label === selectedLabel) {
+                        ctx.strokeStyle = "red";
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(x1 - 2, y1 - 2, (x2 - x1) + 4, (y2 - y1) + 4);
+                    }
+                } else if (shape.type === "circle") {
+                    let [cx, cy, r] = shape.coords;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = "lime";
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 3, 0, 2 * Math.PI);
+                    ctx.fillStyle = "red";
+                    ctx.fill();
+
+                    let colorText = (colorMode === "CMYK") ?
+                        `CMYK: ${rgbToCmyk(shape.color).join(', ')}` :
+                        `RGB: ${shape.color.join(', ')}`;
+                    let text = `${label}: ${colorText}`;
+                    ctx.font = "18px Arial";
+                    ctx.fillStyle = `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})`;
+                    ctx.fillText(text, cx + r + 50, cy);
+
+                    if (label === selectedLabel) {
+                        ctx.beginPath();
+                        
+                        ctx.arc(cx, cy, r + 3, 0, 2 * Math.PI);
+                        ctx.strokeStyle = "red";
+                        ctx.lineWidth = 4;
+                        ctx.stroke();
+                    }
+                }
+            });
+
+            // Draw the temporary shape currently being drawn
+            if (currentShape) {
+                if (currentShape.type === "rectangle") {
+                    let [x1, y1, x2, y2] = currentShape.coords;
+                    ctx.fillStyle = "rgba(50,200,50,0.2)";
+                    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+                    ctx.strokeStyle = "rgb(0,255,100)";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                } else if (currentShape.type === "circle") {
+                    let [cx, cy, r] = currentShape.coords;
+                    ctx.fillStyle = "rgba(50,200,50,0.2)";
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = "rgb(0,255,100)";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(cx - 5, cy);
+                    ctx.lineTo(cx + 5, cy);
+                    ctx.moveTo(cx, cy - 5);
+                    ctx.lineTo(cx, cy + 5);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // HUD displays the color under the current mouse cursor
+        function drawHUD(ctx, cursorColor) {
+            let hudWidth = 600, hudHeight = 50;
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(10, 10, hudWidth, hudHeight);
+            ctx.strokeStyle = "rgb(100,100,100)";
+            ctx.strokeRect(10, 10, hudWidth, hudHeight);
+
+            let colorText = (colorMode === "CMYK") ?
+                `CMYK: ${rgbToCmyk(cursorColor).join(', ')}` :
+                `RGB: ${cursorColor.join(', ')}`;
+            let lines = [
+                `Cursor: ${colorText}`,
+                `[1] Rectangle   [2] Circle   [C] Capture   [O] Open  [R] Reset   [A] Auto-Detect`
+            ];
+
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "rgb(200,255,200)";
+            let y = 30;
+            lines.forEach(line => {
+                ctx.fillText(line, 20, y);
+                y += 20;
+            });
+        }
+
+        function mainLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (imageMode && loadedImages.length > 0) {
+                drawImageWithAspect(ctx, loadedImages[currentImageIndex], canvas.width, canvas.height);
+            } else {
+                drawImageWithAspect(ctx, video, canvas.width, canvas.height);
+            }
+
+            drawSelections(ctx);
+
+            let tempFrame = getCurrentFrame();
+            let tempCtx = tempFrame.getContext('2d');
+            let x = currentMousePos.x, y = currentMousePos.y;
+            let cursorColor = [0, 0, 0];
+
+            if (x >= 0 && y >= 0 && x < tempFrame.width && y < tempFrame.height) {
+                let pixel = tempCtx.getImageData(x, y, 1, 1).data;
+                cursorColor = [pixel[0], pixel[1], pixel[2]];
+            }
+
+            drawHUD(ctx, cursorColor);
+            requestAnimationFrame(mainLoop);
+        }
+
+        // Prevent context menu
+        canvas.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+
+        // Mouse events for drawing shapes
+        canvas.addEventListener('mousedown', function (e) {
+            let pos = getMappedCoordinates(e);
+            if (!pos) return;
+            if (e.button === 0) {
+                currentDrag = pos;
+            }
+        });
+
+        canvas.addEventListener('mousemove', function (e) {
+            let pos = getMappedCoordinates(e);
+            currentMousePos = { x: pos[0], y: pos[1] };
+
+            if (!currentDrag) return;
+
+            if (selectionMode === "rectangle") {
+                let x1 = currentDrag[0], y1 = currentDrag[1];
+                let x2 = pos[0], y2 = pos[1];
+                currentShape = {
+                    type: "rectangle",
+                    coords: [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]
+                };
+            } else if (selectionMode === "circle") {
+                let dx = pos[0] - currentDrag[0], dy = pos[1] - currentDrag[1];
+                let r = Math.floor(Math.sqrt(dx * dx + dy * dy));
+                currentShape = {
+                    type: "circle",
+                    coords: [currentDrag[0], currentDrag[1], r]
+                };
+            }
+        });
+
+        // FIX 1: Updated mouseup event with image-specific shape management
+        canvas.addEventListener('mouseup', function (e) {
+            if (e.button !== 0) return;
+            let pos = getMappedCoordinates(e);
+            if (!currentDrag || !pos) {
+                currentDrag = null;
+                currentShape = null;
+                return;
+            }
+
+            const imageKey = getCurrentImageKey();
+            if (!shapesByImage[imageKey]) {
+                shapesByImage[imageKey] = [];
+            }
+
+            if (selectionMode === "rectangle" && currentShape) {
+                let rect = currentShape.coords;
+                let avg = computeAverageForRectangle(rect);
+                shapesByImage[imageKey].push({
+                    type: "rectangle",
+                    coords: rect,
+                    color: avg,
+                    auto: false,
+                    label: getLabel(shapeIdCounter),
+                    imageKey: imageKey
+                });
+                shapeIdCounter++;
+            } else if (selectionMode === "circle" && currentShape) {
+                let circle = currentShape.coords;
+                let avg = computeAverageForCircle(circle);
+                shapesByImage[imageKey].push({
+                    type: "circle",
+                    coords: circle,
+                    color: avg,
+                    auto: false,
+                    label: getLabel(shapeIdCounter),
+                    imageKey: imageKey
+                });
+                shapeIdCounter++;
+            }
+
+            updateCurrentShapes();
+            currentDrag = null;
+            currentShape = null;
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function (e) {
+            let key = e.key.toLowerCase();
+
+            if (key === '1') {
+                selectionMode = "rectangle";
+            } else if (key === '2') {
+                selectionMode = "circle";
+            } else if (key === 'c') {
+                if (e.ctrlKey) return;
+                let timestamp = new Date().toISOString().replace(/[:\-T.]/g, '');
+                let dataURL = canvas.toDataURL('image/png');
+                let link = document.createElement('a');
+                link.download = `capture_${timestamp}.png`;
+                link.href = dataURL;
+                link.click();
+                console.log(`Captured image at ${timestamp}`);
+            } else if (key === 'o') {
+                fileInput.click();
+            } else if (key === 'r') {
+                // ✅ FIXED: Reset current image shapes only, preserve global counter
+                const imageKey = getCurrentImageKey();
+                shapesByImage[imageKey] = [];
+                updateCurrentShapes();
+                // DO NOT RESET shapeIdCounter - keep labels unique across all images
+            } else if (key === 'a') {
+                // Auto-detect circles using OpenCV.js
+                if (typeof cv === 'undefined') {
+                    alert('OpenCV.js not loaded yet. Please wait.');
+                    return;
+                }
+
+                let srcCanvas = getCurrentFrame();
+                srcCanvas.style.display = "none";
+                document.body.appendChild(srcCanvas);
+                let src = cv.imread(srcCanvas);
+                document.body.removeChild(srcCanvas);
+
+                // Enhanced preprocessing for better circle detection
+                let gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+                cv.medianBlur(gray, gray, 5);
+                cv.GaussianBlur(gray, gray, new cv.Size(7, 7), 1.5, 1.5);
+                let circles = new cv.Mat();
+
+                let param1 = parseInt(document.getElementById('param1Val').value);
+                let param2 = parseInt(document.getElementById('param2Val').value);
+                let minRadius = parseInt(document.getElementById('minRadiusVal').value);
+                let maxRadius = parseInt(document.getElementById('maxRadiusVal').value);
+                let minDist = Math.max(20, Math.floor((minRadius + maxRadius) / 3));
+
+                console.log(`Optimized circle detection: Param1=${param1}, Param2=${param2}, minR=${minRadius}, maxR=${maxRadius}, minDist=${minDist}`);
+
+                cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1, minDist, param1, param2, minRadius, maxRadius);
+
+                const imageKey = getCurrentImageKey();
+                if (!shapesByImage[imageKey]) {
+                    shapesByImage[imageKey] = [];
+                }
+
+                // ✅ FIX: Determine starting label for this image
+                let startingLabelId;
+                if (imageLabelRanges[imageKey]) {
+                    // Reuse the same label range for this image
+                    startingLabelId = imageLabelRanges[imageKey].start;
+                } else {
+                    // First time detecting on this image, use current global counter
+                    startingLabelId = shapeIdCounter;
+                    imageLabelRanges[imageKey] = { start: startingLabelId };
+                }
+
+                // Remove previous auto-detected shapes from current image
+                shapesByImage[imageKey] = shapesByImage[imageKey].filter(s => !s.auto);
+
+                if (!circles.empty()) {
+                    let currentLabelId = startingLabelId;
+                    let circleData = [];
+
+                    for (let i = 0; i < circles.cols; i++) {
+                        let x = circles.data32F[i * 3];
+                        let y = circles.data32F[i * 3 + 1];
+                        let r = circles.data32F[i * 3 + 2];
+                        circleData.push({ x, y, r });
+                    }
+// Sort circles: top-to-bottom, left-to-right (y primary, then x)
+                    circleData.sort((a, b) => {
+                        // Define "row" threshold, if needed for tighter clustering
+                        const rowThresh = 10; // Adjust if needed, 10px typical
+                        if (Math.abs(a.y - b.y) > rowThresh) {
+                            return a.y - b.y; // Sort by y (top to bottom)
+                        }
+                        return a.x - b.x;     // Same row: sort by x (left to right)
+                    });
+                    // Process circles with consistent labeling
+                    circleData.forEach(circle => {
+                        let { x, y, r } = circle;
+                        let restrictedPercentage = parseInt(document.getElementById('restrictedAreaVal').value, 10);
+                        let effectiveR = Math.round(r * (restrictedPercentage / 100));
+
+                        let mask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+                        let center = new cv.Point(x, y);
+                        cv.circle(mask, center, effectiveR, new cv.Scalar(255, 255, 255, 255), -1);
+                        let mean = cv.mean(src, mask);
+                        let avgRGB = [Math.round(mean[0]), Math.round(mean[1]), Math.round(mean[2])];
+
+                        shapesByImage[imageKey].push({
+                            type: "circle",
+                            coords: [Math.round(x), Math.round(y), effectiveR],
+                            color: avgRGB,
+                            auto: true,
+                            label: getLabel(currentLabelId),
+                            imageKey: imageKey
+                        });
+                        currentLabelId++;
+                        mask.delete();
+                    });
+
+                    // ✅ FIX: Update global counter only if we used new labels
+                    if (!imageLabelRanges[imageKey] || currentLabelId > shapeIdCounter) {
+                        shapeIdCounter = currentLabelId;
+                        imageLabelRanges[imageKey] = {
+                            start: startingLabelId,
+                            end: currentLabelId - 1
+                        };
+                    }
+
+                } else {
+                    let err = document.getElementById('noCirclesMsg');
+                    err.style.display = "block";
+                    err.style.animation = "floatIn 0.5s ease-out";
+                    setTimeout(() => { err.style.display = "none"; }, 3000);
+                }
+
+                updateCurrentShapes();
+                src.delete();
+                gray.delete();
+                circles.delete();
+            }
+
+        });
+
+
+        // Tab switching
+        const detectTab = document.getElementById('detectTab');
+        const regressionTab = document.getElementById('regressionTab');
+        const tabDetectBtn = document.getElementById('tabDetectBtn');
+        const tabRegressionBtn = document.getElementById('tabRegressionBtn');
+
+        document.getElementById('tabDetectBtn').addEventListener('click', () => showTab('detect'));
+        document.getElementById('tabRegressionBtn').addEventListener('click', () => showTab('regression'));
+
+        function showTab(tab) {
+            if (tab === 'detect') {
+                detectTab.style.display = 'block';
+                regressionTab.style.display = 'none';
+                tabDetectBtn.classList.add('selected');
+                tabRegressionBtn.classList.remove('selected');
+                tabDetectBtn.style.color = '#eee';
+                tabRegressionBtn.style.color = '#aaa';
+            } else {
+                detectTab.style.display = 'none';
+                regressionTab.style.display = 'block';
+                tabDetectBtn.classList.remove('selected');
+                tabRegressionBtn.classList.add('selected');
+                tabDetectBtn.style.color = '#aaa';
+                tabRegressionBtn.style.color = '#eee';
+                updateRegressionTable();
+                updateImageThumbnails();
+
+                // FIX 4: Auto-restore data (no commit button needed)
+                autoRestoreData();
+            }
+        }
+
+        // FIX 4: Auto-restore data function
+        function autoRestoreData() {
+            committedData.forEach(({ label, y }) => {
+                const input = document.querySelector(`#regressionTable input[data-label="${label}"]`);
+                if (input) input.value = y;
+            });
+        }
+
+        // FIX 1: Updated file input to work with image-specific shapes
+        fileInput.addEventListener('change', function (e) {
+            let files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            files.forEach(file => {
+                let imgElem = new Image();
+                imgElem.onload = function () {
+                    loadedImages.push(imgElem);
+                    if (loadedImages.length === 1) {
+                        imageMode = true;
+                        currentImageIndex = 0;
+                        updateCurrentShapes();
+                    }
+                    updateImageThumbnails();
+                };
+                imgElem.src = URL.createObjectURL(file);
+            });
+        });
+
+        // Add Images button
+        document.getElementById('addImagesBtn').addEventListener('click', function () {
+            fileInput.click();
+        });
+
+        // FIX 1: Updated image thumbnails function
+        function updateImageThumbnails() {
+            let container = document.getElementById('imageThumbnails');
+            container.innerHTML = '';
+
+            loadedImages.forEach((img, index) => {
+                let thumbnail = document.createElement('img');
+                thumbnail.src = img.src;
+                thumbnail.className = 'image-thumbnail';
+                if (index === currentImageIndex) {
+                    thumbnail.classList.add('active');
+                }
+                thumbnail.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    updateCurrentShapes(); // FIX 1: Update shapes when switching images
+                    updateImageThumbnails();
+                });
+                container.appendChild(thumbnail);
+            });
+        }
+
+        // Color mode selection
+        document.getElementById('quizRGB').addEventListener('click', function () {
+            colorMode = "RGB";
+            document.getElementById('circleRGB').classList.add('selected');
+            document.getElementById('circleCMYK').classList.remove('selected');
+            updateShapeList();
+            updateShapeDropdown();
+        });
+
+        document.getElementById('quizCMYK').addEventListener('click', function () {
+            colorMode = "CMYK";
+            document.getElementById('circleCMYK').classList.add('selected');
+            document.getElementById('circleRGB').classList.remove('selected');
+            updateShapeList();
+            updateShapeDropdown();
+        });
+
+        // Set initial color mode
+        document.getElementById('circleRGB').classList.add('selected');
+
+        // FIX 5: Color mode toggle for regression studio
+        document.getElementById('toggleColorMode').addEventListener('click', function () {
+            regressionStudioColorMode = regressionStudioColorMode === "RGB" ? "CMYK" : "RGB";
+            document.getElementById('currentColorMode').textContent = regressionStudioColorMode;
+            updateRegressionTable();
+        });
+
+        // FIX 3: Chart visibility control
+        document.getElementById('chartSelector').addEventListener('change', function () {
+            const selected = this.value;
+            const components = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'total'];
+
+            components.forEach(component => {
+                const chartDiv = document.getElementById(component + 'Chart').parentNode;
+                if (selected === 'all' || selected === component) {
+                    chartDiv.style.display = 'block';
+                } else {
+                    chartDiv.style.display = 'none';
+                }
+            });
+
+            // Update regression output to show only selected component
+            if (selected !== 'all' && regressionModels[selected]) {
+                updateRegressionEquationDisplay(selected);
+            } else if (selected === 'all') {
+                // Show all equations
+                computeMultipleRegressions();
+            }
+
+        });
+
+        // ISSUE 3: Best R² Selector functionality
+        document.getElementById('bestR2Selector').addEventListener('change', function () {
+            const selectedComponent = this.value;
+            if (selectedComponent && regressionModels[selectedComponent]) {
+                const model = regressionModels[selectedComponent];
+
+                // Highlight best model
+                document.querySelectorAll('.regression-chart').forEach(chart => {
+                    chart.parentNode.classList.remove('best-r2-highlight');
+                });
+
+                const bestChart = document.getElementById(selectedComponent + 'Chart');
+                if (bestChart) {
+                    bestChart.parentNode.classList.add('best-r2-highlight');
+                }
+
+                // Update info
+                document.getElementById('bestR2Info').innerHTML =
+                    `<strong>Best Model:</strong> ${selectedComponent.charAt(0).toUpperCase() + selectedComponent.slice(1)}<br>
+           <strong>R² Value:</strong> ${model.r2.toFixed(4)}<br>
+           <strong>Equation:</strong> y = ${model.m.toFixed(4)}x + ${model.b.toFixed(4)}`;
+            }
+        });
+
+        document.getElementById('applyBestR2').addEventListener('click', function () {
+            const selectedComponent = document.getElementById('bestR2Selector').value;
+            if (selectedComponent && regressionModels[selectedComponent]) {
+                // Set chart selector to show best model
+                document.getElementById('chartSelector').value = selectedComponent;
+                document.getElementById('chartSelector').dispatchEvent(new Event('change'));
+
+                alert(`Applied best R² model: ${selectedComponent.charAt(0).toUpperCase() + selectedComponent.slice(1)} (R² = ${regressionModels[selectedComponent].r2.toFixed(4)})`);
+            }
+        });
+
+        // FIX 6: CSV download functionality
+        document.getElementById('downloadCSV').addEventListener('click', function () {
+            const allShapes = [];
+            Object.keys(shapesByImage).forEach(imageKey => {
+                allShapes.push(...shapesByImage[imageKey]);
+            });
+
+            if (allShapes.length === 0) {
+                alert("No data to export. Please add shapes first.");
+                return;
+            }
+
+            // Create CSV content
+            let csvContent = "";
+
+            if (regressionStudioColorMode === "RGB") {
+                csvContent = "Label,Red,Green,Blue,Known_Molarity,Image_Source\n";
+
+                allShapes.forEach(shape => {
+                    const committedEntry = committedData.find(d => d.label === shape.label);
+                    const molarity = committedEntry ? committedEntry.y : "";
+                    const imageSource = shape.imageKey || "camera";
+
+                    csvContent += `${shape.label},${shape.color[0]},${shape.color[1]},${shape.color[2]},${molarity},${imageSource}\n`;
+                });
+            } else {
+                csvContent = "Label,Cyan,Magenta,Yellow,Black,Known_Molarity,Image_Source\n";
+
+                allShapes.forEach(shape => {
+                    const cmyk = rgbToCmyk(shape.color);
+                    const committedEntry = committedData.find(d => d.label === shape.label);
+                    const molarity = committedEntry ? committedEntry.y : "";
+                    const imageSource = shape.imageKey || "camera";
+
+                    csvContent += `${shape.label},${cmyk[0]},${cmyk[1]},${cmyk[2]},${cmyk[3]},${molarity},${imageSource}\n`;
+                });
+            }
+
+            // Download CSV
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `regression_data_${regressionStudioColorMode}_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            alert(`CSV exported successfully in ${regressionStudioColorMode} format!`);
+        });
+
+        // Sync slider and number inputs
+        function syncInputs(rangeElem, numberElem) {
+            rangeElem.addEventListener("input", function () {
+                numberElem.value = this.value;
+            });
+            numberElem.addEventListener("input", function () {
+                rangeElem.value = this.value;
+            });
+        }
+
+        syncInputs(document.getElementById('param1Range'), document.getElementById('param1Val'));
+        syncInputs(document.getElementById('param2Range'), document.getElementById('param2Val'));
+        syncInputs(document.getElementById('minRadiusRange'), document.getElementById('minRadiusVal'));
+        syncInputs(document.getElementById('maxRadiusRange'), document.getElementById('maxRadiusVal'));
+        syncInputs(document.getElementById('restrictedAreaRange'), document.getElementById('restrictedAreaVal'));
+
+        // Update the left-side shapes info list
+        function updateShapeList() {
+            let list = document.getElementById('circleList');
+            list.innerHTML = '';
+
+            shapes.forEach(shape => {
+                let li = document.createElement('li');
+                let label = shape.label;
+                let colorText = (colorMode === "CMYK") ?
+                    `CMYK: ${rgbToCmyk(shape.color).join(', ')}` :
+                    `RGB: ${shape.color.join(', ')}`;
+                li.textContent = `${label}: ${colorText} (${shape.type}${shape.auto ? " (auto)" : ""})`;
+                li.style.color = `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})`;
+                list.appendChild(li);
+            });
+        }
+
+        function updateShapeDropdown() {
+            let select = document.getElementById('circleSelect');
+            const currentSelection = select.value;
+            select.innerHTML = '';
+
+            shapes.forEach(shape => {
+                let label = shape.label;
+                let colorText = (colorMode === "CMYK") ?
+                    `CMYK: ${rgbToCmyk(shape.color).join(', ')}` :
+                    `RGB: ${shape.color.join(', ')}`;
+                let option = document.createElement('option');
+                option.value = label;
+                option.textContent = `${label}: ${colorText} (${shape.type}${shape.auto ? " (auto)" : ""})`;
+                select.appendChild(option);
+            });
+
+            // Restore the selection if it still exists
+            if ([...select.options].some(option => option.value === currentSelection)) {
+                select.value = currentSelection;
+            }
+        }
+
+        // FIX 1: Updated shape removal to work with image-specific shapes
+        document.getElementById('removeCircleButton').addEventListener('click', function () {
+            let select = document.getElementById('circleSelect');
+            let selectedLabel = select.value;
+            let index = shapes.findIndex(s => s.label === selectedLabel);
+            if (index !== -1) {
+                shapes.splice(index, 1);
+                // Update the image-specific shapes array
+                const imageKey = getCurrentImageKey();
+                shapesByImage[imageKey] = shapes;
+                updateShapeList();
+                updateShapeDropdown();
+            }
+        });
+
+        // FIX 1: Updated predict dropdown function
+        function updatePredictDropdown() {
+            const predictSel = document.getElementById('predictShapeSelect');
+            predictSel.innerHTML = '';
+
+            Object.keys(shapesByImage).forEach(imageKey => {
+                shapesByImage[imageKey].forEach(shape => {
+                    const opt = document.createElement('option');
+                    opt.value = shape.label;
+                    opt.textContent = shape.label;
+                    predictSel.appendChild(opt);
+                });
+            });
+        }
+
+        // Periodic updates
+        setInterval(() => {
+            updateShapeList();
+            updateShapeDropdown();
+        }, 1000);
+
+        // FIX 1 & 2: Updated regression table function
+        function updateRegressionTable() {
+            const tbody = document.querySelector('#regressionTable tbody');
+            tbody.innerHTML = '';
+
+            // Get all shapes from all images
+            const allShapes = [];
+            Object.keys(shapesByImage).forEach(imageKey => {
+                allShapes.push(...shapesByImage[imageKey]);
+            });
+
+            allShapes.forEach(shape => {
+                const tr = document.createElement('tr');
+                const speciesIcon = generateSpeciesIcon(shape);
+
+                // FIX 5: Display color based on regression studio mode
+                const colorDisplay = regressionStudioColorMode === "CMYK" ?
+                    rgbToCmyk(shape.color).join(',') :
+                    shape.color.join(',');
+
+                // ISSUE 2: Removed CSV column from table structure
+                tr.innerHTML = `
+          <td>${shape.label}</td>
+          <td>${regressionStudioColorMode}: [${colorDisplay}]</td>
+          <td><input type="number" step="0.01" min="0" data-label="${shape.label}"></td>
+          <td><img src="${speciesIcon}" alt="${shape.label}" class="species-icon"></td>
+          <td><button class="delete-point" data-label="${shape.label}">🗑️</button></td>`;
+                tbody.appendChild(tr);
+
+                // FIX 2: Permanent deletion handler
+                tr.querySelector('.delete-point').addEventListener('click', e => {
+                    const lbl = e.currentTarget.dataset.label;
+
+                    // Remove from committedData
+                    committedData = committedData.filter(pt => pt.label !== lbl);
+                    localStorage.setItem('committedData', JSON.stringify(committedData));
+
+                    // Remove from all shapes
+                    Object.keys(shapesByImage).forEach(imageKey => {
+                        shapesByImage[imageKey] = shapesByImage[imageKey].filter(s => s.label !== lbl);
+                    });
+
+                    // Update current shapes reference
+                    updateCurrentShapes();
+
+                    // Remove the row
+                    e.currentTarget.closest('tr').remove();
+
+                    // Update predict dropdown
+                    updatePredictDropdown();
+                });
+
+                // FIX 4: Auto-save data when input changes
+                const input = tr.querySelector('input');
+                input.addEventListener('input', function () {
+                    const y = parseFloat(this.value);
+                    const label = this.dataset.label;
+
+                    // Remove existing entry
+                    committedData = committedData.filter(pt => pt.label !== label);
+
+                    // Add new entry if valid
+                    if (!isNaN(y)) {
+                        committedData.push({ label, y });
+                    }
+
+                    localStorage.setItem('committedData', JSON.stringify(committedData));
+                });
+            });
+
+            updatePredictDropdown();
+        }
+
+        // FIX 1: Updated predict function to work with all shapes
+        document.getElementById('predictBtn').addEventListener('click', () => {
+            if (Object.keys(regressionModels).length === 0) {
+                alert('Run regression first.');
+                return;
+            }
+            const label = document.getElementById('predictShapeSelect').value;
+
+            // Find shape across all images
+            let shape = null;
+            Object.keys(shapesByImage).forEach(imageKey => {
+                const foundShape = shapesByImage[imageKey].find(s => s.label === label);
+                if (foundShape) shape = foundShape;
+            });
+
+            if (!shape) return;
+
+            const raw = shape.color;
+            const cmyk = rgbToCmyk(raw);
+            const total = Math.sqrt(raw[0] ** 2 + raw[1] ** 2 + raw[2] ** 2);
+
+            let predictions = [];
+            if (regressionModels.red) {
+                predictions.push(`Red: ${(regressionModels.red.m * raw[0] + regressionModels.red.b).toFixed(4)}`);
+            }
+            if (regressionModels.green) {
+                predictions.push(`Green: ${(regressionModels.green.m * raw[1] + regressionModels.green.b).toFixed(4)}`);
+            }
+            if (regressionModels.blue) {
+                predictions.push(`Blue: ${(regressionModels.blue.m * raw[2] + regressionModels.blue.b).toFixed(4)}`);
+            }
+            if (regressionModels.cyan) {
+                predictions.push(`Cyan: ${(regressionModels.cyan.m * cmyk[0] + regressionModels.cyan.b).toFixed(4)}`);
+            }
+            if (regressionModels.magenta) {
+                predictions.push(`Magenta: ${(regressionModels.magenta.m * cmyk[1] + regressionModels.magenta.b).toFixed(4)}`);
+            }
+            if (regressionModels.yellow) {
+                predictions.push(`Yellow: ${(regressionModels.yellow.m * cmyk[2] + regressionModels.yellow.b).toFixed(4)}`);
+            }
+            if (regressionModels.total) {
+                predictions.push(`Total: ${(regressionModels.total.m * total + regressionModels.total.b).toFixed(4)}`);
+            }
+
+            document.getElementById('predictOutput').innerHTML = `
+        <strong>Predicted Molarity for ${label}:</strong><br>
+        ${predictions.join('<br>')}
+      `;
+        });
+
+        // Run regression button
+        document.getElementById('runRegressionBtn').addEventListener('click', computeMultipleRegressions);
+        function updateRegressionEquationDisplay(selectedComponent) {
+            const showR2 = document.getElementById('toggleR2').checked;
+            if (selectedComponent && regressionModels[selectedComponent]) {
+                const model = regressionModels[selectedComponent];
+                let r2Text = showR2 ? `, R² = ${model.r2.toFixed(4)}` : '';
+                document.getElementById('regressionOutput').innerHTML =
+                    `<div style='font-size: 14px; text-align: center;'>
+                    <strong>${selectedComponent.charAt(0).toUpperCase() + selectedComponent.slice(1)}:</strong> y = ${model.m.toFixed(4)}x + ${model.b.toFixed(4)}${r2Text}
+                    </div>`;
+            }
+        }
+        document.getElementById('toggleR2').addEventListener('change', function () {
+            const selectedComponent = document.getElementById('chartSelector').value;
+            if (selectedComponent && regressionModels[selectedComponent]) {
+                updateRegressionEquationDisplay(selectedComponent);
+            }
+        });
+        function computeMultipleRegressions() {
+            const pts = [];
+            document.querySelectorAll('#regressionTable tbody tr').forEach(tr => {
+                const input = tr.querySelector('input');
+                const label = input.dataset.label;
+                const y = parseFloat(input.value);
+                if (isNaN(y)) return;
+
+                // Find shape across all images
+                let shape = null;
+                Object.keys(shapesByImage).forEach(imageKey => {
+                    const foundShape = shapesByImage[imageKey].find(s => s.label === label);
+                    if (foundShape) shape = foundShape;
+                });
+
+                if (!shape) return;
+
+                const raw = shape.color;
+                const cmyk = rgbToCmyk(raw);
+                const total = Math.sqrt(raw[0] ** 2 + raw[1] ** 2 + raw[2] ** 2);
+
+                pts.push({
+                    label,
+                    y,
+                    red: raw[0],
+                    green: raw[1],
+                    blue: raw[2],
+                    cyan: cmyk[0],
+                    magenta: cmyk[1],
+                    yellow: cmyk[2],
+                    total
+                });
+            });
+
+            if (pts.length < 2) {
+                alert('Please enter at least two known molarity values.');
+                return;
+            }
+
+            const components = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'total'];
+            regressionModels = {};
+            r2Rankings = []; // ISSUE 3: Reset rankings
+            let outputHtml = '<div style="font-size: 14px; text-align: center;">';
+
+            components.forEach(component => {
+                const model = calculateRegression(pts, component);
+                if (model) {
+                    regressionModels[component] = model;
+                    r2Rankings.push({ component, r2: model.r2 }); // ISSUE 3: Track R² values
+                    outputHtml += `<strong>${component.charAt(0).toUpperCase() + component.slice(1)}:</strong> y = ${model.m.toFixed(4)}x + ${model.b.toFixed(4)}<br>`;
+                    drawComponentChart(component, pts, model);
+                }
+            });
+
+            outputHtml += '</div>';
+            document.getElementById('regressionOutput').innerHTML = outputHtml;
+
+            // ISSUE 3: Update best R² selector
+            updateBestR2Selector();
+        }
+
+        // ISSUE 3: Function to update best R² selector
+        function updateBestR2Selector() {
+            // Sort by R² value descending
+            r2Rankings.sort((a, b) => b.r2 - a.r2);
+
+            const selector = document.getElementById('bestR2Selector');
+            selector.innerHTML = '';
+
+            r2Rankings.forEach((ranking, index) => {
+                const option = document.createElement('option');
+                option.value = ranking.component;
+                option.textContent = `${index + 1}. ${ranking.component.charAt(0).toUpperCase() + ranking.component.slice(1)} (R² = ${ranking.r2.toFixed(4)})`;
+                selector.appendChild(option);
+            });
+
+            // Set best model as default
+            if (r2Rankings.length > 0) {
+                selector.value = r2Rankings[0].component;
+                bestR2Model = r2Rankings[0];
+
+                // Show the best R² section
+                document.getElementById('bestR2Section').classList.add('visible');
+
+                // Update info for best model
+                document.getElementById('bestR2Info').innerHTML =
+                    `<strong>Best Model:</strong> ${bestR2Model.component.charAt(0).toUpperCase() + bestR2Model.component.slice(1)}<br>
+           <strong>R² Value:</strong> ${bestR2Model.r2.toFixed(4)}<br>
+           <strong>Equation:</strong> y = ${regressionModels[bestR2Model.component].m.toFixed(4)}x + ${regressionModels[bestR2Model.component].b.toFixed(4)}`;
+            }
+        }
+
+        function calculateRegression(pts, component) {
+            const n = pts.length;
+            let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+            pts.forEach(pt => {
+                const x = pt[component];
+                const y = pt.y;
+                sumX += x;
+                sumY += y;
+                sumXY += x * y;
+                sumX2 += x * x;
+            });
+
+            const m = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            const b = (sumY - m * sumX) / n;
+
+            // Calculate R²
+            let ssTot = 0, ssRes = 0;
+            const meanY = sumY / n;
+            pts.forEach(pt => {
+                const x = pt[component];
+                const y = pt.y;
+                ssTot += (y - meanY) ** 2;
+                ssRes += (y - (m * x + b)) ** 2;
+            });
+            const r2 = 1 - ssRes / ssTot;
+
+            return { m, b, r2 };
+        }
+
+        function drawComponentChart(component, pts, model) {
+            const canvasId = component + 'Chart';
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            const pad = 35;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, W, H);
+
+            // Background
+            ctx.fillStyle = "#222";
+            ctx.fillRect(0, 0, W, H);
+
+            // Data bounds
+            const xs = pts.map(p => p[component]);
+            const ys = pts.map(p => p.y);
+            const xMin = Math.min(...xs);
+            const xMax = Math.max(...xs);
+            const yMin = Math.min(...ys);
+            const yMax = Math.max(...ys);
+
+            // Add padding to ranges
+            const xRange = xMax - xMin;
+            const yRange = yMax - yMin;
+            const xPad = xRange * 0.1;
+            const yPad = yRange * 0.1;
+
+            // Mapping functions
+            const toX = x => pad + ((x - (xMin - xPad)) / (xRange + 2 * xPad)) * (W - 2 * pad);
+            const toY = y => H - pad - ((y - (yMin - yPad)) / (yRange + 2 * yPad)) * (H - 2 * pad);
+
+            // Draw axes
+            ctx.strokeStyle = "#ccc";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(pad, H - pad);
+            ctx.lineTo(W - pad, H - pad);
+            ctx.moveTo(pad, H - pad);
+            ctx.lineTo(pad, pad);
+            ctx.stroke();
+
+            // Draw data points
+            ctx.fillStyle = "#4a90e2";
+            pts.forEach(pt => {
+                ctx.beginPath();
+                ctx.arc(toX(pt[component]), toY(pt.y), 3, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+
+            // Labels
+            ctx.fillStyle = "#eee";
+            ctx.font = "10px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(component.charAt(0).toUpperCase() + component.slice(1), W / 2, H - 5);
+
+            ctx.save();
+            ctx.translate(10, H / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText('Molarity', 0, 0);
+            ctx.restore();
+
+            // R² value
+            
+            const showR2 = document.getElementById('toggleR2')?.checked;
+            if (showR2) {
+                // Draw regression line
+                ctx.strokeStyle = "#ff6b6b";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                const x1 = xMin - xPad, x2 = xMax + xPad;
+                ctx.moveTo(toX(x1), toY(model.m * x1 + model.b));
+                ctx.lineTo(toX(x2), toY(model.m * x2 + model.b));
+                ctx.stroke();
+
+                // R² value
+                ctx.fillStyle = "#ff6b6b";
+                ctx.font = "11px Arial";
+                ctx.textAlign = "right";
+                ctx.fillText(`R² = ${model.r2.toFixed(3)}`, W - 10, 20);
+            }
+        }
+
+        // FIX 4: Enhanced export function
+        document.getElementById('exportModelBtn').addEventListener('click', () => {
+            const allShapes = [];
+            Object.keys(shapesByImage).forEach(imageKey => {
+                allShapes.push(...shapesByImage[imageKey]);
+            });
+
+            if (allShapes.length === 0) {
+                alert("No shapes to export. Please add shapes first.");
+                return;
+            }
+
+            let csvContent = "";
+
+            if (regressionStudioColorMode === "RGB") {
+                csvContent = "Label,Red,Green,Blue,Known_Molarity,Image_Source\n";
+                allShapes.forEach(shape => {
+                    const committed = committedData.find(d => d.label === shape.label);
+                    const molarity = committed ? committed.y : "";
+                    csvContent += `${shape.label},${shape.color[0]},${shape.color[1]},${shape.color[2]},${molarity},${shape.imageKey || "camera"}\n`;
+                });
+            } else {
+                csvContent = "Label,Cyan,Magenta,Yellow,Black,Known_Molarity,Image_Source\n";
+                allShapes.forEach(shape => {
+                    const cmyk = rgbToCmyk(shape.color);
+                    const committed = committedData.find(d => d.label === shape.label);
+                    const molarity = committed ? committed.y : "";
+                    csvContent += `${shape.label},${cmyk[0]},${cmyk[1]},${cmyk[2]},${cmyk[3]},${molarity},${shape.imageKey || "camera"}\n`;
+                });
+            }
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `regression_data_${regressionStudioColorMode}_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            alert(`CSV exported successfully: ${regressionStudioColorMode} format`);
+        });
+
+
+
+        // Import model
+        document.getElementById('importModelBtn').addEventListener('click', () => {
+            document.getElementById('importModelInput').click();
+        });
+
+        // FIX 4: Enhanced import function
+        document.getElementById('importModelInput').addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const importData = JSON.parse(reader.result);
+
+                    // Validate import data
+                    if (!importData.version || !importData.shapesByImage) {
+                        throw new Error("Invalid or outdated model file format");
+                    }
+
+                    // Import data
+                    shapesByImage = importData.shapesByImage || {};
+                    committedData = importData.committedData || [];
+                    regressionModels = importData.regressionModels || {};
+                    shapeIdCounter = importData.shapeIdCounter || 0;
+                    colorMode = importData.colorMode || "RGB";
+                    bestR2Model = importData.bestR2Model || null; // ISSUE 3: Import best R² info
+                    r2Rankings = importData.r2Rankings || [];
+
+                    // Update UI
+                    updateCurrentShapes();
+                    updateRegressionTable();
+
+                    // ISSUE 3: Update best R² selector if data exists
+                    if (r2Rankings.length > 0) {
+                        updateBestR2Selector();
+                    }
+
+                    // Update color mode UI
+                    if (colorMode === "CMYK") {
+                        document.getElementById('circleCMYK').classList.add('selected');
+                        document.getElementById('circleRGB').classList.remove('selected');
+                    } else {
+                        document.getElementById('circleRGB').classList.add('selected');
+                        document.getElementById('circleCMYK').classList.remove('selected');
+                    }
+
+                    localStorage.setItem('committedData', JSON.stringify(committedData));
+
+                    alert(`Model imported successfully! Loaded ${Object.keys(shapesByImage).length} image(s) with shapes.`);
+
+                } catch (err) {
+                    alert('Error importing model: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Initialize OpenCV when ready
+        if (typeof cv !== 'undefined') {
+            onOpenCvReady();
+        }
+
+        // Initialize the application
+        updateCurrentShapes(); // Initialize current shapes
+
+        // Load committed data on page load
+        if (committedData.length > 0) {
+            console.log('Loaded committed data:', committedData);
+        }
+    </script>
+
+    <!-- Load OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+</body>
+
+</html>

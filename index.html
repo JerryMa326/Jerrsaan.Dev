@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jerrsaan.Dev</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+    <style>
+        @import url('https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css');
+        
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        .animate-ping {
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        
+        .animate-bounce {
+            animation: bounce 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        
+        @keyframes ping {
+            0% { transform: scale(1); opacity: 1; }
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(-25%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
+            50% { transform: none; animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+        }
+        
+        .bg-gradient-to-br {
+            background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
+        }
+        
+        .bg-gradient-to-r {
+            background-image: linear-gradient(to right, var(--tw-gradient-stops));
+        }
+        
+        .bg-gradient-to-t {
+            background-image: linear-gradient(to top, var(--tw-gradient-stops));
+        }
+        
+        .from-slate-900 { --tw-gradient-from: #0f172a; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(15, 23, 42, 0)); }
+        .via-purple-900 { --tw-gradient-stops: var(--tw-gradient-from), #581c87, var(--tw-gradient-to, rgba(88, 28, 135, 0)); }
+        .to-slate-900 { --tw-gradient-to: #0f172a; }
+        .from-purple-400 { --tw-gradient-from: #c084fc; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(192, 132, 252, 0)); }
+        .via-pink-500 { --tw-gradient-stops: var(--tw-gradient-from), #ec4899, var(--tw-gradient-to, rgba(236, 72, 153, 0)); }
+        .to-red-500 { --tw-gradient-to: #ef4444; }
+        .from-purple-500 { --tw-gradient-from: #a855f7; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(168, 85, 247, 0)); }
+        .to-pink-500 { --tw-gradient-to: #ec4899; }
+        .from-purple-600 { --tw-gradient-from: #9333ea; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(147, 51, 234, 0)); }
+        .to-pink-600 { --tw-gradient-to: #db2777; }
+        .from-purple-700 { --tw-gradient-from: #7c3aed; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(124, 58, 237, 0)); }
+        .to-pink-700 { --tw-gradient-to: #be185d; }
+        
+        .bg-clip-text {
+            background-clip: text;
+            -webkit-background-clip: text;
+        }
+        
+        .text-transparent {
+            color: transparent;
+        }
+        
+        .backdrop-blur-sm {
+            backdrop-filter: blur(4px);
+        }
+        
+        .blur-3xl {
+            filter: blur(64px);
+        }
+        
+        .transition-all {
+            transition-property: all;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .duration-300 { transition-duration: 300ms; }
+        .duration-1000 { transition-duration: 1000ms; }
+        .delay-300 { transition-delay: 300ms; }
+        .delay-500 { transition-delay: 500ms; }
+        .delay-1000 { animation-delay: 1000ms; }
+        
+        .hover-scale-105:hover { transform: scale(1.05); }
+        .active-scale-95:active { transform: scale(0.95); }
+        
+        .group:hover .group-hover-opacity-100 { opacity: 1; }
+        .group:hover .group-hover-translate-x-1 { transform: translateX(0.25rem); }
+        .group:hover .group-hover-rotate-12 { transform: rotate(12deg); }
+        
+        .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+        .shadow-purple-500-50 { box-shadow: 0 25px 50px -12px rgba(168, 85, 247, 0.5); }
+        
+        .loaded { opacity: 1; transform: translateY(0); }
+        .not-loaded { opacity: 0; transform: translateY(3rem); }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+        <!-- Animated background elements -->
+        <div class="absolute inset-0">
+            <div id="blob1" class="absolute w-96 h-96 bg-purple-500 opacity-20 rounded-full blur-3xl animate-pulse" style="left: 0px; top: 0px;"></div>
+            <div id="blob2" class="absolute w-80 h-80 bg-blue-500 opacity-20 rounded-full blur-3xl animate-pulse delay-1000" style="right: 0px; bottom: 0px;"></div>
+        </div>
+
+        <!-- Floating particles -->
+        <div class="absolute inset-0 pointer-events-none" id="particles"></div>
+
+        <!-- Main content -->
+        <div class="relative z-10 flex flex-col items-center justify-center min-h-screen px-6">
+            <!-- Header -->
+            <div id="header" class="text-center mb-16 transform transition-all duration-1000 not-loaded">
+                <h1 class="text-6xl md:text-8xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent mb-4">
+                    Jerrsaan.Dev
+                </h1>
+                <div class="h-1 w-32 bg-gradient-to-r from-purple-500 to-pink-500 mx-auto rounded-full animate-pulse"></div>
+            </div>
+
+            <!-- Buttons container -->
+             <div id="buttons" class="flex flex-col sm:flex-row gap-8 transform transition-all duration-1000 delay-300 not-loaded">
+
+            <a href="v2.6.0.html"
+                class="group relative px-12 py-6 bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl text-white font-semibold text-xl transition-all duration-300 hover-scale-105 shadow-2xl hover:shadow-purple-500-50 active-scale-95"
+                >
+                    <div class="absolute inset-0 bg-gradient-to-r from-purple-700 to-pink-700 rounded-2xl opacity-0 group-hover-opacity-100 transition-opacity duration-300"></div>
+                    <div class="absolute inset-0 bg-white bg-opacity-20 rounded-2xl opacity-0 group-hover-opacity-100 transition-opacity duration-300 animate-pulse"></div>
+                    <span class="relative z-10 flex items-center gap-3">
+                        v2.6.0 (auto not working)
+                        <svg class="w-6 h-6 transform group-hover-translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                        </svg>
+                    </span>
+                </a>
+
+                <!-- Button 2 (v2.4.2 - old) -->
+                <a href="v2.4.2.html"
+                class="group relative px-12 py-6 bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl text-white font-semibold text-xl transition-all duration-300 hover-scale-105 shadow-2xl hover:shadow-purple-500-50 active-scale-95"
+                >
+                    <div class="absolute inset-0 bg-gradient-to-r from-purple-700 to-pink-700 rounded-2xl opacity-0 group-hover-opacity-100 transition-opacity duration-300"></div>
+                    <div class="absolute inset-0 bg-white bg-opacity-20 rounded-2xl opacity-0 group-hover-opacity-100 transition-opacity duration-300 animate-pulse"></div>
+                    <span class="relative z-10 flex items-center gap-3">
+                        v2.4.2 (old)
+                        <svg class="w-6 h-6 transform group-hover-rotate-12 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                        </svg>
+                    </span>
+                </a>
+            </div>
+            <!-- Decorative text -->
+            <div id="decorative" class="mt-16 text-center transform transition-all duration-1000 delay-500 not-loaded">
+                <p class="text-white text-opacity-60 text-lg font-light">
+                    In accordance with Skidmore College and Shenendehowa High School
+                </p>
+                <p class="text-white text-opacity-60 text-lg font-light mt-2">
+                    By Hassaan Vani, Grady Chen, Jerry Ma
+                </p>
+                <div class="mt-4 flex justify-center space-x-2">
+                    <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></div>
+                    <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0.2s;"></div>
+                    <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0.4s;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom gradient fade -->
+        <div class="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-slate-900 to-transparent"></div>
+    </div>
+
+    <script>
+        let mousePos = { x: 0, y: 0 };
+
+        // Handle mouse movement for background blobs
+        document.addEventListener('mousemove', (e) => {
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+            
+            const blob1 = document.getElementById('blob1');
+            const blob2 = document.getElementById('blob2');
+            
+            blob1.style.left = (mousePos.x * 0.02) + 'px';
+            blob1.style.top = (mousePos.y * 0.02) + 'px';
+            blob1.style.transition = 'all 0.3s ease-out';
+            
+            blob2.style.right = (mousePos.x * 0.01) + 'px';
+            blob2.style.bottom = (mousePos.y * 0.01) + 'px';
+            blob2.style.transition = 'all 0.5s ease-out';
+        });
+
+        // Create floating particles
+        function createParticles() {
+            const particles = document.getElementById('particles');
+            for (let i = 0; i < 20; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'absolute w-1 h-1 bg-white bg-opacity-30 rounded-full animate-ping';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 5 + 's';
+                particle.style.animationDuration = (2 + Math.random() * 3) + 's';
+                particles.appendChild(particle);
+            }
+        }
+
+        // Handle button clicks
+        function handleButtonClick(buttonName) {
+            console.log(buttonName + ' clicked!');
+            // Add your button functionality here
+        }
+
+        // Initialize page
+        window.addEventListener('load', () => {
+            // Create particles
+            createParticles();
+            
+            // Trigger animations
+            setTimeout(() => {
+                document.getElementById('header').classList.remove('not-loaded');
+                document.getElementById('header').classList.add('loaded');
+            }, 100);
+            
+            setTimeout(() => {
+                document.getElementById('buttons').classList.remove('not-loaded');
+                document.getElementById('buttons').classList.add('loaded');
+            }, 400);
+            
+            setTimeout(() => {
+                document.getElementById('decorative').classList.remove('not-loaded');
+                document.getElementById('decorative').classList.add('loaded');
+            }, 600);
+        });
+    </script>
+</body>
+</html>
