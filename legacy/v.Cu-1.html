@@ -1,0 +1,3500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Color Analysis - Chemistry Lab Assistant v2.8.1</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #333;
+            overflow: hidden;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        /* Container with zoom support */
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* Canvas with zoom functionality */
+        #canvasContainer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform-origin: center center;
+            transition: transform 0.1s ease;
+        }
+
+        #videoCanvas {
+            display: block;
+            margin: auto;
+            border: 2px solid #444;
+            border-radius: 4px;
+        }
+
+        /* Grid view */
+        #gridView {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: auto;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .grid-item {
+            position: relative;
+            background: #222;
+            border: 2px solid #555;
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 300px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .grid-item.active {
+            border-color: #4a90e2;
+            box-shadow: 0 0 10px rgba(74, 144, 226, 0.5);
+        }
+
+        .grid-item-header {
+            background: rgba(74, 144, 226, 0.15);
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 400;
+            color: rgba(74, 144, 226, 0.8);
+            border-bottom: 1px solid rgba(85, 85, 85, 0.5);
+        }
+
+        .grid-item canvas {
+            width: 100%;
+            height: 220px;
+            object-fit: contain;
+            background: #111;
+        }
+
+        .grid-item-controls {
+            padding: 8px;
+            background: rgba(40, 40, 40, 0.9);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .grid-item-label-input {
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(85, 85, 85, 0.5);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            flex: 1;
+            height: 20px;
+        }
+
+        /* DRAGGABLE UI ELEMENTS */
+        .draggable-ui {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: move;
+            user-select: none;
+            z-index: 1000;
+            max-width: 300px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .draggable-ui:hover {
+            background: rgba(0, 0, 0, 0.95);
+        }
+
+        .draggable-ui .drag-handle {
+            padding: 4px 8px;
+            background: rgba(74, 144, 226, 0.3);
+            border-radius: 6px 6px 0 0;
+            font-size: 10px;
+            color: #4a90e2;
+            cursor: move;
+        }
+
+        /* UNIFIED BUTTON STYLING */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font: 13px/1.2 "Segoe UI", Arial, sans-serif;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 5px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            cursor: pointer;
+            transition: all .2s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, .25);
+            margin: 2px;
+        }
+
+        .btn:hover {
+            background: linear-gradient(145deg, #357abd, #2a5f8f);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, .35);
+        }
+
+        .btn--success {
+            background: linear-gradient(145deg, #28a745, #1e7e34);
+        }
+
+        .btn--danger {
+            background: linear-gradient(145deg, #dc3545, #c82333);
+        }
+
+        .btn--warning {
+            background: linear-gradient(145deg, #ffc107, #e0a800);
+            color: #000;
+        }
+
+        .btn--small {
+            padding: 3px 6px;
+            font-size: 11px;
+        }
+
+        .btn.active {
+            background: linear-gradient(145deg, #28a745, #1e7e34);
+        }
+
+        /* UI ELEMENTS */
+        .color-display {
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #eee;
+            font-family: 'Courier New', monospace;
+            max-width: 200px;
+        }
+
+        .color-mode-selector {
+            padding: 6px 10px;
+        }
+
+        .quiz-option {
+            display: inline-block;
+            margin: 0 6px;
+            cursor: pointer;
+            vertical-align: middle;
+            color: #eee;
+            font-size: 12px;
+        }
+
+        .quiz-circle {
+            width: 12px;
+            height: 12px;
+            border: 2px solid #eee;
+            border-radius: 50%;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 3px;
+            transition: all 0.2s;
+        }
+
+        .quiz-circle.selected {
+            background-color: #4a90e2;
+            border-color: #4a90e2;
+        }
+
+        #detectionControls {
+            padding: 10px;
+            color: #eee;
+            font-size: 13px;
+            max-width: 200px;
+            max-height: 450px;
+            overflow-y: auto;
+        }
+
+        #detectionControls .control {
+            margin-bottom: 8px;
+        }
+
+        #detectionControls .control:last-child {
+            margin-bottom: 0;
+        }
+
+        #detectionControls .control label {
+            display: block;
+            margin-bottom: 3px;
+            font-weight: 500;
+            font-size: 12px;
+        }
+
+        #detectionControls .control input[type="number"] {
+            width: 45px;
+            margin-left: 6px;
+            font-size: 12px;
+            padding: 2px 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid #555;
+            color: #eee;
+            border-radius: 3px;
+        }
+
+        #detectionControls .control input[type="range"] {
+            width: 100%;
+            margin-top: 4px;
+        }
+
+        #detectionControls .control select {
+            width: 100%;
+            padding: 2px 4px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+
+        #circleInfo {
+            padding: 8px 10px;
+            color: #eee;
+            max-width: 220px;
+            font-size: 12px;
+        }
+
+        #circleInfo h3 {
+            margin: 0 0 6px 0;
+            font-size: 13px;
+            color: #4a90e2;
+        }
+
+        #circleInfo ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #circleInfo li {
+            margin-bottom: 4px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.05);
+            font-size: 11px;
+        }
+
+        #removeCircleBox {
+            padding: 8px 10px;
+            color: #eee;
+            font-size: 12px;
+        }
+
+        #removeCircleBox select {
+            padding: 2px 4px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 3px;
+            font-size: 11px;
+            margin: 0 4px;
+        }
+
+        .zoom-controls {
+            padding: 6px 10px;
+        }
+
+        .zoom-btn {
+            background: rgba(74, 144, 226, 0.8);
+            border: none;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 0 2px;
+        }
+
+        .zoom-level {
+            color: #eee;
+            font-size: 12px;
+            margin: 0 8px;
+        }
+
+        .grid-auto-detect {
+            padding: 8px 12px;
+            max-width: 250px;
+        }
+
+        /* NEW: Calibration UI */
+        .calibration-ui {
+            padding: 10px;
+            color: #eee;
+            font-size: 12px;
+            max-width: 280px;
+        }
+
+        .calibration-step {
+            margin-bottom: 10px;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            border-left: 3px solid #4a90e2;
+        }
+
+        .calibration-step.completed {
+            border-left-color: #28a745;
+            background: rgba(40, 167, 69, 0.1);
+        }
+
+        .calibration-step.active {
+            border-left-color: #ffc107;
+            background: rgba(255, 193, 7, 0.1);
+        }
+
+        /* NEW: Rotation controls */
+        .rotation-controls {
+            padding: 6px 10px;
+        }
+
+        .rotation-btn {
+            background: rgba(255, 193, 7, 0.8);
+            border: none;
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 0 2px;
+        }
+
+        .rotation-angle {
+            color: #eee;
+            font-size: 12px;
+            margin: 0 8px;
+        }
+
+        /* Chart tooltip styling */
+        .chart-tooltip {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            line-height: 1.4;
+            white-space: nowrap;
+        }
+
+        /* Regression studio styles */
+        #regressionTab .studio-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: rgba(40, 40, 40, 0.95);
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+        }
+
+        #regressionTab .studio-container * {
+            color: #eee;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        #regressionTab h2 {
+            text-align: center;
+            margin: 0 0 20px 0;
+            font-size: 1.8rem;
+            font-weight: 300;
+            color: #4a90e2;
+        }
+
+        .precision-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 12px;
+            background: rgba(60, 60, 60, 0.7);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .precision-control label {
+            color: #eee;
+            font-weight: 500;
+        }
+
+        .precision-control select {
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        /* Axis swap control */
+        .axis-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 12px;
+            background: rgba(60, 60, 60, 0.7);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chart-controls {
+            text-align: center;
+            margin: 15px 0;
+            padding: 12px;
+            background: rgba(60, 60, 60, 0.5);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chart-controls label {
+            color: #eee;
+            font-size: 14px;
+            margin: 0 15px;
+        }
+
+        .chart-controls input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 400px;
+            margin-bottom: 20px;
+            border: 1px solid #555;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        #regressionTable {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+
+        #regressionTable th:nth-child(1) {
+            width: 12%;
+        }
+
+        #regressionTable th:nth-child(2) {
+            width: 25%;
+        }
+
+        #regressionTable th:nth-child(3) {
+            width: 25%;
+        }
+
+        #regressionTable th:nth-child(4) {
+            width: 18%;
+        }
+
+        #regressionTable th:nth-child(5) {
+            width: 12%;
+        }
+
+        #regressionTable th:nth-child(6) {
+            width: 8%;
+        }
+
+        #regressionTable th,
+        #regressionTable td {
+            border: 1px solid #555;
+            padding: 8px;
+            text-align: center;
+            word-wrap: break-word;
+        }
+
+        #regressionTable th {
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            font-weight: 500;
+            color: #fff;
+        }
+
+        #regressionTable td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        #regressionTable input[type="number"] {
+            width: 90%;
+            padding: 6px;
+            border: 1px solid #777;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #000;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        #multipleChartsContainer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 20px;
+            justify-content: center;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .regression-chart {
+            border: 2px solid #555;
+            border-radius: 8px;
+            background: #111;
+        }
+
+        .chart-title {
+            text-align: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #4a90e2;
+        }
+
+        .species-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            border: 1px solid #555;
+            display: block;
+            margin: 0 auto;
+            object-fit: contain;
+            background: #222;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .predict-section {
+            text-align: center;
+            margin: 15px 0;
+            padding: 15px;
+            background: rgba(60, 60, 60, 0.5);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        select {
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 6px;
+            font-size: 14px;
+            margin: 0 4px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-btn.selected {
+            color: #4a90e2 !important;
+            border-bottom-color: #4a90e2;
+        }
+
+        #fileInput,
+        #importModelInput {
+            display: none;
+        }
+
+        #noCirclesMsg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 20px;
+            font-weight: 500;
+            display: none;
+            pointer-events: none;
+            animation: floatIn 0.5s ease-out;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border: 2px solid #ff6b6b;
+            z-index: 10000;
+        }
+
+        @keyframes floatIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, calc(-50% + 50px));
+            }
+
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        /* NEW: Bounding box styles */
+        .bounding-box-mode {
+            cursor: crosshair !important;
+        }
+
+        /* NEW: Mode indicator */
+        .mode-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1001;
+            border: 2px solid;
+        }
+
+        .mode-indicator.bounding-box {
+            border-color: #ffc107;
+            color: #ffc107;
+        }
+
+        .mode-indicator.calibration {
+            border-color: #28a745;
+            color: #28a745;
+        }
+
+        .mode-indicator.normal {
+            border-color: #4a90e2;
+            color: #4a90e2;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Tab navigation -->
+    <div id="tabNav"
+        style="position:absolute; top:0; left:0; width:100%; background:rgba(34,34,34,0.95); z-index:1000; display:flex; backdrop-filter:blur(10px);">
+        <button id="tabDetectBtn" class="tab-btn selected">Detection</button>
+        <button id="tabRegressionBtn" class="tab-btn">Regression Studio</button>
+    </div>
+
+    <!-- Mode Indicator -->
+    <div id="modeIndicator" class="mode-indicator normal">Normal Mode</div>
+
+    <!-- Detection Tab -->
+    <div id="detectTab" style="position:absolute; top:45px; left:0; right:0; bottom:0;">
+        <div id="container">
+            <div id="canvasContainer">
+                <canvas id="videoCanvas"></canvas>
+            </div>
+
+            <div id="gridView">
+                <div class="grid-container" id="gridContainer"></div>
+
+                <div class="draggable-ui grid-auto-detect" id="gridAutoDetectUI">
+                    <div class="drag-handle">Grid Controls</div>
+                    <button id="autoDetectAllBtn" class="btn btn--small">Auto-Detect All Images</button>
+                    <button id="resetAllGridBtn" class="btn btn--danger btn--small">Reset All Shapes</button>
+                </div>
+            </div>
+
+            <!-- Draggable UI Elements -->
+            <div class="draggable-ui zoom-controls" id="zoomControlsUI">
+                <div class="drag-handle">Zoom</div>
+                <button class="zoom-btn" id="zoomOutBtn">−</button>
+                <span class="zoom-level" id="zoomLevel">100%</span>
+                <button class="zoom-btn" id="zoomInBtn">+</button>
+                <button class="zoom-btn" id="zoomResetBtn">Reset</button>
+            </div>
+
+            <!-- NEW: Rotation Controls -->
+            <div class="draggable-ui rotation-controls" id="rotationControlsUI">
+                <div class="drag-handle">Rotation</div>
+                <button class="rotation-btn" id="rotateLeftBtn">↺ -1°</button>
+                <span class="rotation-angle" id="rotationAngle">0°</span>
+                <button class="rotation-btn" id="rotateRightBtn">↻ +1°</button>
+                <button class="rotation-btn" id="rotationResetBtn">Reset</button>
+            </div>
+
+            <button id="gridToggleBtn" class="btn" style="position: fixed; bottom: 90px; left: 10px;">Grid View</button>
+
+            <div class="draggable-ui color-display" id="colorDisplayUI">
+                <div class="drag-handle">Color Info</div>
+                <div id="colorDisplay">
+                    <div style="margin-bottom: 4px;">RGB: 0, 0, 0</div>
+                    <div style="font-size: 10px; color: rgba(255,255,255,0.7);">
+                        [1]Rect [2]Circle [B]Bounding [C]Capture [O]Open [R]Reset [A]Auto
+                    </div>
+                </div>
+            </div>
+
+            <div class="draggable-ui color-mode-selector" id="colorModeUI">
+                <div class="drag-handle">Color Mode</div>
+                <span class="quiz-option" id="quizRGB">
+                    <span class="quiz-circle" id="circleRGB"></span>RGB
+                </span>
+                <span class="quiz-option" id="quizCMYK">
+                    <span class="quiz-circle" id="circleCMYK"></span>CMYK
+                </span>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #555;">
+                    <button id="toggleRawTrueBtn" class="btn btn--small">Raw RGB</button>
+                    <button id="calibrateBtn" class="btn btn--warning btn--small">Calibrate</button>
+                </div>
+            </div>
+
+            <div class="draggable-ui" id="detectionControlsUI">
+                <div class="drag-handle">Detection Controls</div>
+                <div id="detectionControls">
+                    <!-- Detection Mode Toggle -->
+                    <div class="control">
+                        <button id="toggleDetectionModeBtn" class="btn btn--small">Circle Detection</button>
+                    </div>
+
+                    <!-- Bounding Box Controls -->
+                    <div class="control">
+                        <button id="setBoundingBoxBtn" class="btn btn--small">Set Bounding Box</button>
+                        <button id="clearBoundingBoxBtn" class="btn btn--danger btn--small">Clear Box</button>
+                    </div>
+
+                    <!-- Shape sorting control -->
+                    <div class="control">
+                        <label>Label Sort Order:</label>
+                        <select id="shapeSortOrder">
+                            <option value="none">Detection Order</option>
+                            <option value="topDown">Top to Bottom</option>
+                            <option value="leftRight">Left to Right</option>
+                        </select>
+                    </div>
+
+                    <!-- Circle Detection Parameters -->
+                    <div id="circleParams">
+                        <div class="control">
+                            <label>Param1
+                                <input type="number" id="param1Val" min="10" max="300" value="30" step="1">
+                            </label>
+                            <input type="range" id="param1Range" min="10" max="300" value="30" step="1">
+                        </div>
+                        <div class="control">
+                            <label>Param2
+                                <input type="number" id="param2Val" min="10" max="200" value="40" step="1">
+                            </label>
+                            <input type="range" id="param2Range" min="10" max="200" value="40" step="1">
+                        </div>
+                        <div class="control">
+                            <label>Min Radius
+                                <input type="number" id="minRadiusVal" min="1" max="500" value="10" step="1">
+                            </label>
+                            <input type="range" id="minRadiusRange" min="1" max="500" value="10" step="1">
+                        </div>
+                        <div class="control">
+                            <label>Max Radius
+                                <input type="number" id="maxRadiusVal" min="10" max="500" value="100" step="1">
+                            </label>
+                            <input type="range" id="maxRadiusRange" min="10" max="500" value="100" step="1">
+                        </div>
+                        <div class="control">
+                            <label>Area (%)
+                                <input type="number" id="restrictedAreaVal" min="1" max="100" value="70" step="1">
+                            </label>
+                            <input type="range" id="restrictedAreaRange" min="1" max="100" value="70" step="1">
+                        </div>
+                    </div>
+
+                    <!-- Square Detection Parameters -->
+                    <div id="squareParams" style="display: none;">
+                        <div class="control">
+                            <label>Min Area
+                                <input type="number" id="minAreaVal" min="10" max="10000" value="500" step="10">
+                            </label>
+                            <input type="range" id="minAreaRange" min="10" max="10000" value="500" step="10">
+                        </div>
+                        <div class="control">
+                            <label>Max Area
+                                <input type="number" id="maxAreaVal" min="1000" max="500000" value="10000" step="100">
+                            </label>
+                            <input type="range" id="maxAreaRange" min="1000" max="500000" value="10000" step="100">
+                        </div>
+                        <div class="control">
+                            <label>Epsilon Factor
+                                <input type="number" id="epsilonVal" min="0.01" max="0.1" value="0.02" step="0.005">
+                            </label>
+                            <input type="range" id="epsilonRange" min="0.01" max="0.1" value="0.02" step="0.005">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NEW: RGB Calibration UI -->
+            <div class="draggable-ui calibration-ui" id="calibrationUI" style="display: none;">
+                <div class="drag-handle">RGB Calibration</div>
+                <div style="margin-bottom: 10px;">
+                    <div>Click on pure color disks in order:</div>
+                </div>
+                <div class="calibration-step" id="redStep">
+                    <strong>1. Red Disk</strong>
+                    <div id="redValue">Not calibrated</div>
+                </div>
+                <div class="calibration-step" id="greenStep">
+                    <strong>2. Green Disk</strong>
+                    <div id="greenValue">Not calibrated</div>
+                </div>
+                <div class="calibration-step" id="blueStep">
+                    <strong>3. Blue Disk</strong>
+                    <div id="blueValue">Not calibrated</div>
+                </div>
+                <div class="calibration-step" id="yellowStep">
+                    <strong>4. Yellow Disk</strong>
+                    <div id="yellowValue">Not calibrated</div>
+                </div>
+                <div class="calibration-step" id="pinkStep">
+                    <strong>5. Pink Disk</strong>
+                    <div id="pinkValue">Not calibrated</div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button id="resetCalibrationBtn" class="btn btn--danger btn--small">Reset</button>
+                    <button id="finishCalibrationBtn" class="btn btn--success btn--small" disabled>Finish</button>
+                </div>
+            </div>
+
+            <div id="noCirclesMsg">No shapes detected</div>
+
+            <div class="draggable-ui" id="circleInfoUI">
+                <div class="drag-handle">Detected Shapes</div>
+                <div id="circleInfo">
+                    <h3>Detected Shapes</h3>
+                    <ul id="circleList"></ul>
+                </div>
+            </div>
+
+            <div class="draggable-ui" id="removeCircleUI">
+                <div class="drag-handle">Remove Shape</div>
+                <div id="removeCircleBox">
+                    <label for="circleSelect">Remove:</label>
+                    <select id="circleSelect"></select>
+                    <button class="btn btn--danger btn--small" id="removeCircleButton">×</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Regression Studio tab -->
+    <div id="regressionTab"
+        style="display:none; position:absolute; top:45px; left:0; right:0; bottom:0; background:#222; overflow:auto; padding:15px;">
+        <div class="studio-container">
+            <h2>Regression Studio</h2>
+
+            <div class="precision-control">
+                <label for="precisionSelector">RGB/CMYK Precision:</label>
+                <select id="precisionSelector">
+                    <option value="0">0 decimals</option>
+                    <option value="1">1 decimal</option>
+                    <option value="2">2 decimals</option>
+                    <option value="3" selected>3 decimals</option>
+                    <option value="4">4 decimals</option>
+                    <option value="5">5 decimals</option>
+                </select>
+                <span style="color: #aaa; font-size: 12px; margin-left: 10px;">
+                    Affects both RGB and CMYK value display
+                </span>
+            </div>
+
+            <!-- Axis swap control -->
+            <div class="axis-control">
+                <label for="axisSwapSelector">Regression Axes:</label>
+                <select id="axisSwapSelector">
+                    <option value="normal">X: Color → Y: Concentration</option>
+                    <option value="swapped">X: Concentration → Y: Color</option>
+                </select>
+                <span style="color: #aaa; font-size: 12px; margin-left: 10px;">
+                    Swap X and Y axes for regression analysis
+                </span>
+            </div>
+
+            <!-- Chart display controls -->
+            <div class="chart-controls">
+                <label>
+                    <input type="checkbox" id="showRegressionToggle" checked>
+                    Show Regression Line & R²
+                </label>
+                <label>
+                    <input type="checkbox" id="showScalesToggle" checked>
+                    Show Chart Scales
+                </label>
+            </div>
+
+            <div
+                style="background: rgba(60, 60, 60, 0.9); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                <h3>Image Management</h3>
+                <div id="imageThumbnails"></div>
+                <button id="addImagesBtn" class="btn">Add Images</button>
+            </div>
+
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <button id="toggleColorMode" class="btn">
+                        Color Mode: <span id="currentColorMode">RGB</span>
+                    </button>
+                </div>
+                <div>
+                    <label for="chartSelector">Chart Display:</label>
+                    <select id="chartSelector">
+                        <option value="all">All Charts</option>
+                        <option value="red">Red</option>
+                        <option value="green">Green</option>
+                        <option value="blue">Blue</option>
+                        <option value="cyan">Cyan</option>
+                        <option value="magenta">Magenta</option>
+                        <option value="yellow">Yellow</option>
+                        <option value="total">Total Magnitude</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="regressionTable">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>RGB Values</th>
+                            <th>CMYK Values</th>
+                            <th>Known Molarity</th>
+                            <th>Species</th>
+                            <th>Remove</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div style="text-align: center; margin: 20px 0;">
+                <button id="downloadCSV" class="btn btn--success">
+                    Download CSV
+                </button>
+            </div>
+
+            <div class="predict-section">
+                <h4>Prediction</h4>
+                <select id="predictShapeSelect"></select>
+                <button id="predictBtn" class="btn">Predict</button>
+                <div id="predictOutput"></div>
+            </div>
+
+            <div class="controls">
+                <button id="runRegressionBtn" class="btn">Run Regression</button>
+                <button id="exportModelBtn" class="btn">Export Model</button>
+                <button id="importModelBtn" class="btn">Import Model</button>
+            </div>
+
+            <div id="regressionOutput"
+                style="margin-top:15px; font-family:monospace; font-size:14px; text-align:center;"></div>
+
+            <div id="multipleChartsContainer">
+                <div>
+                    <div class="chart-title">Red Component</div>
+                    <canvas id="redChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Green Component</div>
+                    <canvas id="greenChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Blue Component</div>
+                    <canvas id="blueChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Cyan Component</div>
+                    <canvas id="cyanChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Magenta Component</div>
+                    <canvas id="magentaChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Yellow Component</div>
+                    <canvas id="yellowChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+                <div>
+                    <div class="chart-title">Total Magnitude</div>
+                    <canvas id="totalChart" class="regression-chart" width="280" height="180"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <input type="file" id="importModelInput" accept=".json">
+
+    <script>
+        // Global state variables
+        let video = document.createElement('video');
+        video.setAttribute('autoplay', true);
+        video.setAttribute('playsinline', true);
+        let canvas = document.getElementById('videoCanvas');
+        let ctx = canvas.getContext('2d');
+        let fileInput = document.getElementById('fileInput');
+        let committedData = JSON.parse(localStorage.getItem('committedData') || '[]');
+        let imageMode = false;
+        let loadedImages = [];
+        let currentImageIndex = 0;
+        let streaming = false;
+        let regressionModels = {};
+        let imageLabels = JSON.parse(localStorage.getItem('imageLabels') || '{}');
+
+        // Enhanced variables
+        let isGridView = false;
+        let decimalPrecision = 3;
+        let axesSwapped = false;
+
+        // Drawing mode
+        let selectionMode = "rectangle";
+        let currentDrag = null;
+        let currentShape = null;
+
+        // Shape management
+        let shapesByImage = {};
+        let shapes = [];
+
+        // Zoom variables
+        let zoomLevel = 1.0;
+        let minZoom = 0.5;
+        let maxZoom = 3.0;
+        let zoomStep = 0.1;
+        let baseCanvasSize = { width: 640, height: 480 };
+
+        // NEW: Rotation variables
+        let rotationAngle = 0;
+        let maxRotation = 45;
+
+        // Track current mouse position
+        let currentMousePos = { x: 0, y: 0 };
+
+        // Color mode
+        let colorMode = "RGB";
+        let regressionStudioColorMode = "RGB";
+
+        // Interactive tooltip system
+        let currentTooltip = null;
+
+        // NEW: Detection mode
+        let detectionMode = "circle"; // "circle" or "square"
+
+        // NEW: Bounding box functionality
+        let boundingBoxMode = false;
+        let boundingBox = null;
+        let drawingBoundingBox = false;
+        let boundingBoxStart = null;
+
+        // NEW: RGB Calibration
+        let calibrationMode = false;
+        let calibrationStep = 0;
+        let rawRgbMode = true;
+        let calibrationData = {
+            red: null,
+            green: null,
+            blue: null,
+            yellow: null,
+            pink: null
+        };
+        let rgbOffsets = { r: 0, g: 0, b: 0 };
+
+        const calibrationSteps = ['red', 'green', 'blue', 'yellow', 'pink'];
+
+        // DRAGGABLE UI FUNCTIONALITY
+        function makeDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            const header = element.querySelector('.drag-handle') || element;
+
+            header.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+
+                let newTop = element.offsetTop - pos2;
+                let newLeft = element.offsetLeft - pos1;
+
+                newTop = Math.max(45, Math.min(window.innerHeight - element.offsetHeight, newTop));
+                newLeft = Math.max(0, Math.min(window.innerWidth - element.offsetWidth, newLeft));
+
+                element.style.top = newTop + "px";
+                element.style.left = newLeft + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        // Initialize draggable UI elements
+        function initializeDraggableUI() {
+            const positions = {
+                colorDisplayUI: { top: '60px', left: '10px' },
+                colorModeUI: { top: '150px', left: '10px' },
+                detectionControlsUI: { top: '60px', right: '10px' },
+                circleInfoUI: { top: '200px', left: '10px' },
+                removeCircleUI: { top: '60px', right: '200px' },
+                zoomControlsUI: { top: '60px', left: '50%', transform: 'translateX(-50%)' },
+                rotationControlsUI: { top: '100px', left: '50%', transform: 'translateX(-50%)' },
+                calibrationUI: { top: '60px', left: '350px' },
+                gridAutoDetectUI: { bottom: '10px', right: '10px' }
+            };
+
+            Object.keys(positions).forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    const pos = positions[id];
+                    Object.keys(pos).forEach(prop => {
+                        element.style[prop] = pos[prop];
+                    });
+                    makeDraggable(element);
+                }
+            });
+        }
+
+        // NEW: Update mode indicator
+        function updateModeIndicator() {
+            const indicator = document.getElementById('modeIndicator');
+            if (calibrationMode) {
+                indicator.textContent = `Calibration Mode - Step ${calibrationStep + 1}: ${calibrationSteps[calibrationStep]}`;
+                indicator.className = 'mode-indicator calibration';
+            } else if (boundingBoxMode) {
+                indicator.textContent = 'Bounding Box Mode - Draw detection area';
+                indicator.className = 'mode-indicator bounding-box';
+            } else {
+                indicator.textContent = `${detectionMode.charAt(0).toUpperCase() + detectionMode.slice(1)} Detection Mode`;
+                indicator.className = 'mode-indicator normal';
+            }
+        }
+
+        // Format color values with proper precision
+        function formatColorValue(num) {
+            const precision = parseInt(document.getElementById('precisionSelector').value, 10);
+            return Number(num.toFixed(precision));
+        }
+
+        // NEW: Apply RGB calibration correction
+        function applyCalibratedRGB(rgb) {
+            if (rawRgbMode || !calibrationData.red) {
+                return rgb.map(v => formatColorValue(v));
+            }
+
+            // Apply calibration correction
+            let [r, g, b] = rgb;
+            r = Math.max(0, Math.min(255, r - rgbOffsets.r));
+            g = Math.max(0, Math.min(255, g - rgbOffsets.g));
+            b = Math.max(0, Math.min(255, b - rgbOffsets.b));
+
+            return [r, g, b].map(v => formatColorValue(v));
+        }
+
+        // NEW: Calculate RGB offsets from calibration data
+        function calculateRGBOffsets() {
+            if (!calibrationData.red || !calibrationData.green || !calibrationData.blue) return;
+
+            // Expected pure values
+            const expected = {
+                red: [255, 0, 0],
+                green: [0, 255, 0],
+                blue: [0, 0, 255]
+            };
+
+            // Calculate average offset
+            let offsetR = 0, offsetG = 0, offsetB = 0, count = 0;
+
+            ['red', 'green', 'blue'].forEach(color => {
+                if (calibrationData[color]) {
+                    const actual = calibrationData[color];
+                    const exp = expected[color];
+                    offsetR += (actual[0] - exp[0]);
+                    offsetG += (actual[1] - exp[1]);
+                    offsetB += (actual[2] - exp[2]);
+                    count++;
+                }
+            });
+
+            if (count > 0) {
+                rgbOffsets.r = offsetR / count;
+                rgbOffsets.g = offsetG / count;
+                rgbOffsets.b = offsetB / count;
+            }
+
+            console.log('RGB Offsets calculated:', rgbOffsets);
+        }
+
+        // Get current image key
+        function getCurrentImageKey() {
+            return imageMode ? `image_${currentImageIndex}` : 'camera';
+        }
+
+        // Update shapes when switching images
+        function updateCurrentShapes() {
+            const imageKey = getCurrentImageKey();
+            if (!shapesByImage[imageKey]) {
+                shapesByImage[imageKey] = [];
+            }
+            shapes = shapesByImage[imageKey];
+            // Clear any temporary drawing state when switching images
+            currentShape = null;
+            currentDrag = null;
+            // Update UI elements
+            updateShapeList();
+            updateShapeDropdown();
+        }
+
+        // FIXED: Robust labeling system
+        function getNextAvailableLabel() {
+            const allLabels = "abcdefghijklmnopqrstuvwxyzαβγδεζηθικλμνξοπρστυφχψω";
+            const usedLabels = new Set(Object.values(shapesByImage).flat().map(s => s.label));
+
+            for (const char of allLabels) {
+                if (!usedLabels.has(char)) {
+                    return char;
+                }
+            }
+
+            let i = 1;
+            while (usedLabels.has("?" + i)) {
+                i++;
+            }
+            return "?" + i;
+        }
+
+        function reassignLabels() {
+            const allShapes = Object.values(shapesByImage).flat().sort((a, b) => a.creationTime - b.creationTime);
+            const allLabels = "abcdefghijklmnopqrstuvwxyzαβγδεζηθικλμνξοπρστυφχψω";
+            let labelIndex = 0;
+
+            allShapes.forEach(shape => {
+                let newLabel;
+                if (labelIndex < allLabels.length) {
+                    newLabel = allLabels[labelIndex];
+                } else {
+                    newLabel = "?" + (labelIndex - allLabels.length + 1);
+                }
+                shape.label = newLabel;
+                labelIndex++;
+            });
+        }
+
+
+        // ZOOM FUNCTIONALITY
+        function updateZoom() {
+            const container = document.getElementById('canvasContainer');
+            container.style.transform = `scale(${zoomLevel})`;
+            document.getElementById('zoomLevel').textContent = Math.round(zoomLevel * 100) + '%';
+        }
+
+        function zoomIn() {
+            if (zoomLevel < maxZoom) {
+                zoomLevel = Math.min(maxZoom, zoomLevel + zoomStep);
+                updateZoom();
+            }
+        }
+
+        function zoomOut() {
+            if (zoomLevel > minZoom) {
+                zoomLevel = Math.max(minZoom, zoomLevel - zoomStep);
+                updateZoom();
+            }
+        }
+
+        function resetZoom() {
+            zoomLevel = 1.0;
+            updateZoom();
+        }
+
+        // NEW: ROTATION FUNCTIONALITY
+        function updateRotation() {
+            document.getElementById('rotationAngle').textContent = rotationAngle + '°';
+            // Rotation will be applied during image drawing
+        }
+
+        function rotateLeft() {
+            rotationAngle = Math.max(-maxRotation, rotationAngle - 1);
+            updateRotation();
+        }
+
+        function rotateRight() {
+            rotationAngle = Math.min(maxRotation, rotationAngle + 1);
+            updateRotation();
+        }
+
+        function resetRotation() {
+            rotationAngle = 0;
+            updateRotation();
+        }
+
+        // Grid view toggle
+        function toggleGridView() {
+            isGridView = !isGridView;
+            const gridView = document.getElementById('gridView');
+            const canvasContainer = document.getElementById('canvasContainer');
+
+            if (isGridView) {
+                gridView.style.display = 'block';
+                canvasContainer.style.display = 'none';
+                updateGridView();
+            } else {
+                gridView.style.display = 'none';
+                canvasContainer.style.display = 'block';
+                if (streaming) {
+                    resizeCanvasToAspect();
+                }
+            }
+        }
+
+        // NEW: Toggle detection mode
+        function toggleDetectionMode() {
+            detectionMode = detectionMode === "circle" ? "square" : "circle";
+            const btn = document.getElementById('toggleDetectionModeBtn');
+            btn.textContent = detectionMode === "circle" ? "Circle Detection" : "Square Detection";
+            btn.className = detectionMode === "circle" ? "btn btn--small" : "btn btn--small active";
+
+            // Show/hide appropriate parameter controls
+            document.getElementById('circleParams').style.display = detectionMode === "circle" ? "block" : "none";
+            document.getElementById('squareParams').style.display = detectionMode === "square" ? "block" : "none";
+
+            updateModeIndicator();
+        }
+
+        // NEW: Set bounding box mode
+        function setBoundingBoxMode() {
+            boundingBoxMode = !boundingBoxMode;
+            const btn = document.getElementById('setBoundingBoxBtn');
+            if (boundingBoxMode) {
+                btn.textContent = "Exit Bounding Mode";
+                btn.className = "btn btn--warning btn--small";
+                canvas.style.cursor = "crosshair";
+            } else {
+                btn.textContent = "Set Bounding Box";
+                btn.className = "btn btn--small";
+                canvas.style.cursor = "default";
+            }
+            updateModeIndicator();
+        }
+
+        // NEW: Clear bounding box
+        function clearBoundingBox() {
+            boundingBox = null;
+            drawingBoundingBox = false;
+            boundingBoxStart = null;
+        }
+
+        // NEW: Start RGB calibration
+        function startCalibration() {
+            calibrationMode = true;
+            calibrationStep = 0;
+            document.getElementById('calibrationUI').style.display = 'block';
+            document.getElementById('calibrateBtn').textContent = 'Exit Calibration';
+            document.getElementById('calibrateBtn').className = 'btn btn--danger btn--small';
+            updateCalibrationUI();
+            updateModeIndicator();
+        }
+
+        // NEW: Exit RGB calibration
+        function exitCalibration() {
+            calibrationMode = false;
+            document.getElementById('calibrationUI').style.display = 'none';
+            document.getElementById('calibrateBtn').textContent = 'Calibrate';
+            document.getElementById('calibrateBtn').className = 'btn btn--warning btn--small';
+            updateModeIndicator();
+        }
+
+        // NEW: Update calibration UI
+        function updateCalibrationUI() {
+            calibrationSteps.forEach((step, index) => {
+                const stepElement = document.getElementById(step + 'Step');
+                const valueElement = document.getElementById(step + 'Value');
+
+                stepElement.className = 'calibration-step';
+                if (index < calibrationStep) {
+                    stepElement.classList.add('completed');
+                    const rgb = calibrationData[step];
+                    valueElement.textContent = `RGB: ${rgb[0]}, ${rgb[1]}, ${rgb[2]}`;
+                } else if (index === calibrationStep) {
+                    stepElement.classList.add('active');
+                    valueElement.textContent = 'Click on the disk...';
+                } else {
+                    valueElement.textContent = 'Not calibrated';
+                }
+            });
+
+            const finishBtn = document.getElementById('finishCalibrationBtn');
+            finishBtn.disabled = calibrationStep < calibrationSteps.length;
+        }
+
+        // NEW: Toggle between raw and true RGB
+        function toggleRawTrue() {
+            rawRgbMode = !rawRgbMode;
+            const btn = document.getElementById('toggleRawTrueBtn');
+            btn.textContent = rawRgbMode ? 'Raw RGB' : 'True RGB';
+            btn.className = rawRgbMode ? 'btn btn--small' : 'btn btn--success btn--small';
+
+            // Update shape list and color displays
+            updateShapeList();
+            updateShapeDropdown();
+        }
+
+        // FIXED: Grid view is now read-only and allows switching images
+        function updateGridView() {
+            const container = document.getElementById('gridContainer');
+            container.innerHTML = '';
+            
+            if (loadedImages.length === 0) {
+                container.innerHTML = '<div style="color: #aaa; text-align: center; padding: 20px;">No images loaded. Add images to view grid.</div>';
+                return;
+            }
+
+            loadedImages.forEach((img, index) => {
+                const gridItem = document.createElement('div');
+                gridItem.className = 'grid-item';
+                if (index === currentImageIndex) {
+                    gridItem.classList.add('active');
+                }
+                gridItem.setAttribute('data-image-index', index);
+
+                gridItem.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    imageMode = true;
+                    resizeCanvasToAspect();
+                    updateCurrentShapes();
+                    toggleGridView(); // Exit grid view to show the selected image
+                });
+
+                const header = document.createElement('div');
+                header.className = 'grid-item-header';
+                header.textContent = imageLabels[`image_${index}`] || `Image ${index + 1}`;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = 350;
+                canvas.height = 220;
+                const ctx = canvas.getContext('2d');
+
+                // Get aspect info for drawing the image thumbnail
+                const gridAspectInfo = drawImageWithAspectAndRotation(ctx, img, canvas.width, canvas.height, 0);
+
+                const imageKey = `image_${index}`;
+                if (shapesByImage[imageKey]) {
+                    // Get aspect info for the main canvas where shapes were drawn
+                    const mainCanvasAspectInfo = getDisplayCanvasAspectInfo(document.getElementById('videoCanvas'), img);
+
+                    shapesByImage[imageKey].forEach(shape => {
+                        // Pass both aspect infos to the drawing function for correct transformation
+                        drawShapeOnGridCanvas(ctx, shape, mainCanvasAspectInfo, gridAspectInfo);
+                    });
+                }
+
+
+                gridItem.appendChild(header);
+                gridItem.appendChild(canvas);
+                container.appendChild(gridItem);
+            });
+        }
+
+
+        // Auto-detect all images functionality
+        function autoDetectAllImages() {
+            if (typeof cv === 'undefined') {
+                alert('OpenCV.js not loaded yet. Please wait.');
+                return;
+            }
+
+            let processed = 0;
+            const total = loadedImages.length;
+
+            loadedImages.forEach((img, index) => {
+                setTimeout(() => {
+                    autoDetectOnImage(index);
+                    processed++;
+
+                    if (processed === total) {
+                        alert(`Auto-detection completed for ${total} images.`);
+                        if (isGridView) {
+                            updateGridView();
+                        }
+                        updateShapeList();
+                    }
+                }, index * 100);
+            });
+        }
+
+        // NEW: Auto-detect function with bounding box support and square detection
+        function autoDetectOnImage(imageIndex) {
+            if (typeof cv === 'undefined') {
+                alert('OpenCV.js not loaded yet. Please wait.');
+                return;
+            }
+
+            reassignLabels(); // Ensure labels are compact before adding more
+
+            let sourceCanvas;
+            let originalImageSize = { width: 0, height: 0 };
+
+            if (imageIndex >= 0 && imageIndex < loadedImages.length) {
+                const img = loadedImages[imageIndex];
+                originalImageSize.width = img.width;
+                originalImageSize.height = img.height;
+
+                sourceCanvas = document.createElement('canvas');
+                sourceCanvas.width = 640;  // Fixed detection size
+                sourceCanvas.height = 480;
+                const sourceCtx = sourceCanvas.getContext('2d');
+                drawImageWithAspectAndRotation(sourceCtx, img, sourceCanvas.width, sourceCanvas.height, rotationAngle);
+            } else {
+                sourceCanvas = getCurrentFrame();
+                if (video.videoWidth && video.videoHeight) {
+                    originalImageSize.width = video.videoWidth;
+                    originalImageSize.height = video.videoHeight;
+                } else {
+                    originalImageSize.width = 640;
+                    originalImageSize.height = 480;
+                }
+            }
+
+            // Get the scaling information from drawImageWithAspect
+            const aspectInfo = getImageAspectInfo(sourceCanvas, originalImageSize);
+
+            sourceCanvas.style.display = "none";
+            document.body.appendChild(sourceCanvas);
+            let src = cv.imread(sourceCanvas);
+            document.body.removeChild(sourceCanvas);
+
+            // Apply bounding box mask if set
+            if (boundingBox) {
+                let mask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+                let [x1, y1, x2, y2] = boundingBox;
+
+                // Transform bounding box coordinates to source canvas coordinates
+                const bbox = transformDisplayToDetection(x1, y1, x2, y2, aspectInfo, sourceCanvas);
+
+                let rect = new cv.Rect(
+                    Math.max(0, Math.min(bbox.x1, bbox.x2)),
+                    Math.max(0, Math.min(bbox.y1, bbox.y2)),
+                    Math.abs(bbox.x2 - bbox.x1),
+                    Math.abs(bbox.y2 - bbox.y1)
+                );
+
+                // Ensure rect is within image bounds
+                rect.x = Math.max(0, Math.min(rect.x, src.cols - 1));
+                rect.y = Math.max(0, Math.min(rect.y, src.rows - 1));
+                rect.width = Math.min(rect.width, src.cols - rect.x);
+                rect.height = Math.min(rect.height, src.rows - rect.y);
+
+                cv.rectangle(mask, new cv.Point(rect.x, rect.y),
+                           new cv.Point(rect.x + rect.width, rect.y + rect.height),
+                           new cv.Scalar(255, 255, 255, 255), -1);
+
+                // Apply mask
+                let maskedSrc = new cv.Mat();
+                src.copyTo(maskedSrc, mask);
+                src.delete();
+                src = maskedSrc;
+                mask.delete();
+            }
+
+            const imageKey = imageIndex >= 0 ? `image_${imageIndex}` : getCurrentImageKey();
+            if (!shapesByImage[imageKey]) {
+                shapesByImage[imageKey] = [];
+            }
+
+            // Remove previous auto-detected shapes
+            shapesByImage[imageKey] = shapesByImage[imageKey].filter(s => !s.auto);
+
+            if (detectionMode === "circle") {
+                detectCircles(src, imageKey, aspectInfo, sourceCanvas);
+            } else {
+                detectSquares(src, imageKey, aspectInfo, sourceCanvas);
+            }
+
+            // Cleanup
+            src.delete();
+
+            if (isGridView) {
+                updateGridView();
+            } else {
+                updateCurrentShapes();
+            }
+            updateShapeList();
+        }
+
+        // NEW: Circle detection function (extracted from main function)
+        function detectCircles(src, imageKey, aspectInfo, sourceCanvas) {
+            // SIMPLIFIED preprocessing - just like the old working version
+            let gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+            cv.medianBlur(gray, gray, 5);
+            cv.GaussianBlur(gray, gray, new cv.Size(7, 7), 1.5, 1.5);
+
+            let circles = new cv.Mat();
+            let param1 = parseInt(document.getElementById('param1Val').value);
+            let param2 = parseInt(document.getElementById('param2Val').value);
+            let minRadius = parseInt(document.getElementById('minRadiusVal').value);
+            let maxRadius = parseInt(document.getElementById('maxRadiusVal').value);
+            let minDist = Math.max(20, Math.floor((minRadius + maxRadius) / 3));
+
+            console.log(`Circle detection: Param1=${param1}, Param2=${param2}, minR=${minRadius}, maxR=${maxRadius}, minDist=${minDist}`);
+
+            // SINGLE detection pass on blurred grayscale
+            cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1, minDist, param1, param2, minRadius, maxRadius);
+
+            if (!circles.empty()) {
+                // Process detected circles with coordinate transformation
+                let allCircles = [];
+                for (let i = 0; i < circles.cols; i++) {
+                    let x = circles.data32F[i * 3];
+                    let y = circles.data32F[i * 3 + 1];
+                    let r = circles.data32F[i * 3 + 2];
+                    allCircles.push([x, y, r]);
+                }
+
+                // Sort circles based on user preference
+                let sortOrder = document.getElementById('shapeSortOrder').value;
+                if (sortOrder === 'topDown') {
+                    allCircles.sort((a, b) => a[1] - b[1]); // Sort by Y coordinate
+                } else if (sortOrder === 'leftRight') {
+                    allCircles.sort((a, b) => a[0] - b[0]); // Sort by X coordinate
+                }
+
+                allCircles.forEach(([x, y, r]) => {
+                    // Transform coordinates from detection canvas to display canvas
+                    const transformedCoords = transformDetectionToDisplay(x, y, r, aspectInfo, canvas);
+
+                    let restrictedPercentage = parseInt(document.getElementById('restrictedAreaVal').value, 10);
+                    let effectiveR = Math.round(transformedCoords.r * (restrictedPercentage / 100));
+
+                    // Use original detection canvas for color sampling
+                    let mask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+                    let center = new cv.Point(x, y);
+                    cv.circle(mask, center, r * (restrictedPercentage / 100), new cv.Scalar(255, 255, 255, 255), -1);
+
+                    let mean = cv.mean(src, mask);
+                    let avgRGB = [
+                        formatColorValue(mean[0]),
+                        formatColorValue(mean[1]),
+                        formatColorValue(mean[2])
+                    ];
+
+                    // Apply calibration if enabled
+                    avgRGB = applyCalibratedRGB(avgRGB);
+
+                    shapesByImage[imageKey].push({
+                        type: "circle",
+                        coords: [transformedCoords.x, transformedCoords.y, effectiveR],
+                        color: avgRGB,
+                        auto: true,
+                        label: getNextAvailableLabel(),
+                        imageKey: imageKey,
+                        creationTime: Date.now()
+                    });
+                    mask.delete();
+                });
+            } else {
+                if (!isGridView) {
+                    let err = document.getElementById('noCirclesMsg');
+                    err.style.display = "block";
+                    setTimeout(() => { err.style.display = "none"; }, 2000);
+                }
+            }
+
+            gray.delete();
+            circles.delete();
+        }
+
+        // FIXED: More accurate square detection
+        function detectSquares(src, imageKey, aspectInfo, sourceCanvas) {
+            let gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+
+            // Improved preprocessing for square detection
+            cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0, 0);
+            let binary = new cv.Mat();
+            cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+
+            // Find contours
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            let minArea = parseInt(document.getElementById('minAreaVal').value);
+            let maxArea = parseInt(document.getElementById('maxAreaVal').value);
+            let epsilonFactor = parseFloat(document.getElementById('epsilonVal').value);
+
+            console.log(`Square detection: minArea=${minArea}, maxArea=${maxArea}, epsilon=${epsilonFactor}`);
+
+            let allSquares = [];
+
+            // Process each contour
+            for (let i = 0; i < contours.size(); i++) {
+                let contour = contours.get(i);
+                let area = cv.contourArea(contour);
+
+                if (area >= minArea && area <= maxArea) {
+                    // Approximate contour to polygon
+                    let epsilon = epsilonFactor * cv.arcLength(contour, true);
+                    let approx = new cv.Mat();
+                    cv.approxPolyDP(contour, approx, epsilon, true);
+
+                    // Check if it's a quadrilateral (4 vertices)
+                    if (approx.rows === 4) {
+                        // Get bounding rectangle
+                        let rect = cv.boundingRect(approx);
+                        
+                        // Check if it's roughly square (aspect ratio close to 1)
+                        let aspectRatio = rect.width / rect.height;
+                        if (aspectRatio >= 0.8 && aspectRatio <= 1.2) {
+                            allSquares.push({
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height,
+                                area: area
+                            });
+                        }
+                    }
+                    approx.delete();
+                }
+                contour.delete();
+            }
+
+            // Sort squares based on user preference
+            let sortOrder = document.getElementById('shapeSortOrder').value;
+            if (sortOrder === 'topDown') {
+                allSquares.sort((a, b) => a.y - b.y);
+            } else if (sortOrder === 'leftRight') {
+                allSquares.sort((a, b) => a.x - b.x);
+            }
+
+            allSquares.forEach(square => {
+                // Transform coordinates from detection canvas to display canvas
+                const transformedCoords = transformSquareDetectionToDisplay(square, aspectInfo, canvas);
+
+                // Calculate average color within the square
+                let mask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+                let rect = new cv.Rect(square.x, square.y, square.width, square.height);
+                cv.rectangle(mask, new cv.Point(rect.x, rect.y),
+                           new cv.Point(rect.x + rect.width, rect.y + rect.height),
+                           new cv.Scalar(255, 255, 255, 255), -1);
+
+                let mean = cv.mean(src, mask);
+                let avgRGB = [
+                    formatColorValue(mean[0]),
+                    formatColorValue(mean[1]),
+                    formatColorValue(mean[2])
+                ];
+
+                // Apply calibration if enabled
+                avgRGB = applyCalibratedRGB(avgRGB);
+
+                shapesByImage[imageKey].push({
+                    type: "rectangle",
+                    coords: transformedCoords,
+                    color: avgRGB,
+                    auto: true,
+                    label: getNextAvailableLabel(),
+                    imageKey: imageKey,
+                    creationTime: Date.now()
+                });
+                mask.delete();
+            });
+
+            if (allSquares.length === 0 && !isGridView) {
+                let err = document.getElementById('noCirclesMsg');
+                err.textContent = "No squares detected";
+                err.style.display = "block";
+                setTimeout(() => {
+                    err.style.display = "none";
+                    err.textContent = "No shapes detected";
+                }, 2000);
+            }
+
+            // Cleanup
+            gray.delete();
+            binary.delete();
+            contours.delete();
+            hierarchy.delete();
+        }
+
+        // NEW: Transform square coordinates from detection to display
+        function transformSquareDetectionToDisplay(square, aspectInfo, displayCanvas) {
+            // Convert from detection canvas coordinates to original image coordinates
+            const imgX1 = (square.x - aspectInfo.offsetX) / aspectInfo.scaleX;
+            const imgY1 = (square.y - aspectInfo.offsetY) / aspectInfo.scaleY;
+            const imgX2 = ((square.x + square.width) - aspectInfo.offsetX) / aspectInfo.scaleX;
+            const imgY2 = ((square.y + square.height) - aspectInfo.offsetY) / aspectInfo.scaleY;
+
+            // Convert from original image coordinates to display canvas coordinates
+            const displayAspectInfo = getDisplayCanvasAspectInfo(displayCanvas);
+
+            const displayX1 = imgX1 * displayAspectInfo.scaleX + displayAspectInfo.offsetX;
+            const displayY1 = imgY1 * displayAspectInfo.scaleY + displayAspectInfo.offsetY;
+            const displayX2 = imgX2 * displayAspectInfo.scaleX + displayAspectInfo.offsetX;
+            const displayY2 = imgY2 * displayAspectInfo.scaleY + displayAspectInfo.offsetY;
+
+            return [
+                Math.round(Math.min(displayX1, displayX2)),
+                Math.round(Math.min(displayY1, displayY2)),
+                Math.round(Math.max(displayX1, displayX2)),
+                Math.round(Math.max(displayY1, displayY2))
+            ];
+        }
+
+        // NEW: Transform bounding box from display to detection coordinates
+        function transformDisplayToDetection(x1, y1, x2, y2, aspectInfo, detectionCanvas) {
+            // Convert from display canvas to original image coordinates
+            const displayAspectInfo = getDisplayCanvasAspectInfo(canvas);
+            
+            const imgX1 = (x1 - displayAspectInfo.offsetX) / displayAspectInfo.scaleX;
+            const imgY1 = (y1 - displayAspectInfo.offsetY) / displayAspectInfo.scaleY;
+            const imgX2 = (x2 - displayAspectInfo.offsetX) / displayAspectInfo.scaleX;
+            const imgY2 = (y2 - displayAspectInfo.offsetY) / displayAspectInfo.scaleY;
+
+            // Convert from original image to detection canvas coordinates
+            const detX1 = imgX1 * aspectInfo.scaleX + aspectInfo.offsetX;
+            const detY1 = imgY1 * aspectInfo.scaleY + aspectInfo.offsetY;
+            const detX2 = imgX2 * aspectInfo.scaleX + aspectInfo.offsetX;
+            const detY2 = imgY2 * aspectInfo.scaleY + aspectInfo.offsetY;
+
+            return {
+                x1: Math.round(detX1),
+                y1: Math.round(detY1),
+                x2: Math.round(detX2),
+                y2: Math.round(detY2)
+            };
+        }
+
+        // Get aspect ratio and scaling information
+        function getImageAspectInfo(sourceCanvas, originalImageSize) {
+            const canvasWidth = sourceCanvas.width;
+            const canvasHeight = sourceCanvas.height;
+            const imgWidth = originalImageSize.width;
+            const imgHeight = originalImageSize.height;
+
+            const imgAspect = imgWidth / imgHeight;
+            const canvasAspect = canvasWidth / canvasHeight;
+
+            let drawWidth, drawHeight, offsetX, offsetY;
+
+            if (imgAspect > canvasAspect) {
+                drawWidth = canvasWidth;
+                drawHeight = canvasWidth / imgAspect;
+                offsetX = 0;
+                offsetY = (canvasHeight - drawHeight) / 2;
+            } else {
+                drawHeight = canvasHeight;
+                drawWidth = canvasHeight * imgAspect;
+                offsetY = 0;
+                offsetX = (canvasWidth - drawWidth) / 2;
+            }
+
+            return {
+                offsetX,
+                offsetY,
+                drawWidth,
+                drawHeight,
+                scaleX: drawWidth / imgWidth,
+                scaleY: drawHeight / imgHeight
+            };
+        }
+
+        // Transform coordinates from detection canvas to display canvas
+        function transformDetectionToDisplay(detectionX, detectionY, detectionR, aspectInfo, displayCanvas) {
+            // First, convert from detection canvas coordinates to original image coordinates
+            const imgX = (detectionX - aspectInfo.offsetX) / aspectInfo.scaleX;
+            const imgY = (detectionY - aspectInfo.offsetY) / aspectInfo.scaleY;
+            const imgR = detectionR / Math.min(aspectInfo.scaleX, aspectInfo.scaleY);
+
+            // Then convert from original image coordinates to display canvas coordinates
+            const displayAspectInfo = getDisplayCanvasAspectInfo(displayCanvas);
+
+            const displayX = imgX * displayAspectInfo.scaleX + displayAspectInfo.offsetX;
+            const displayY = imgY * displayAspectInfo.scaleY + displayAspectInfo.offsetY;
+            const displayR = imgR * Math.min(displayAspectInfo.scaleX, displayAspectInfo.scaleY);
+
+            return {
+                x: Math.round(displayX),
+                y: Math.round(displayY),
+                r: Math.round(displayR)
+            };
+        }
+
+        // Get display canvas aspect information
+        function getDisplayCanvasAspectInfo(displayCanvas, img) {
+            let originalImageSize;
+            const currentImg = img || (imageMode && loadedImages.length > 0 ? loadedImages[currentImageIndex] : null);
+
+            if (currentImg) {
+                originalImageSize = { width: currentImg.width, height: currentImg.height };
+            } else if (video.videoWidth && video.videoHeight) {
+                originalImageSize = { width: video.videoWidth, height: video.videoHeight };
+            } else {
+                originalImageSize = { width: 640, height: 480 };
+            }
+
+            return getImageAspectInfo(displayCanvas, originalImageSize);
+        }
+
+        // Enhanced regression calculation with axis swap support
+        function calculateEnhancedRegression(pts, component) {
+            const n = pts.length;
+            if (n < 2) return null;
+
+            let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+
+            pts.forEach(pt => {
+                let x, y;
+
+                if (axesSwapped) {
+                    // X: Concentration, Y: Color
+                    x = parseFloat(pt.y);
+                    y = parseFloat(pt[component]);
+                } else {
+                    // X: Color, Y: Concentration
+                    x = parseFloat(pt[component]);
+                    y = parseFloat(pt.y);
+                }
+
+                if (isNaN(x) || isNaN(y)) return;
+
+                sumX += x;
+                sumY += y;
+                sumXY += x * y;
+                sumX2 += x * x;
+                sumY2 += y * y;
+            });
+
+            const denominator = n * sumX2 - sumX * sumX;
+            if (Math.abs(denominator) < 1e-12) return null;
+
+            const slope = (n * sumXY - sumX * sumY) / denominator;
+            const intercept = (sumY - slope * sumX) / n;
+
+            // Calculate R²
+            let ssTot = 0, ssRes = 0;
+            const meanY = sumY / n;
+
+            pts.forEach(pt => {
+                let x, y;
+
+                if (axesSwapped) {
+                    x = parseFloat(pt.y);
+                    y = parseFloat(pt[component]);
+                } else {
+                    x = parseFloat(pt[component]);
+                    y = parseFloat(pt.y);
+                }
+
+                if (isNaN(x) || isNaN(y)) return;
+
+                const predicted = slope * x + intercept;
+                ssTot += Math.pow(y - meanY, 2);
+                ssRes += Math.pow(y - predicted, 2);
+            });
+
+            const r2 = ssTot > 0 ? Math.max(0, Math.min(1, 1 - ssRes / ssTot)) : 0;
+
+            return {
+                m: slope,
+                b: intercept,
+                r2: r2
+            };
+        }
+
+        // Proper canvas sizing with aspect ratio
+        function resizeCanvasToAspect() {
+            const container = document.getElementById('container');
+            const containerRect = container.getBoundingClientRect();
+
+            let sourceWidth, sourceHeight;
+            if (imageMode && loadedImages.length > 0) {
+                const img = loadedImages[currentImageIndex];
+                sourceWidth = img.width;
+                sourceHeight = img.height;
+            } else if (video.videoWidth && video.videoHeight) {
+                sourceWidth = video.videoWidth;
+                sourceHeight = video.videoHeight;
+            } else {
+                sourceWidth = 640;
+                sourceHeight = 480;
+            }
+
+            const sourceAspect = sourceWidth / sourceHeight;
+            const containerAspect = containerRect.width / containerRect.height;
+
+            let canvasWidth, canvasHeight;
+
+            if (sourceAspect > containerAspect) {
+                canvasWidth = containerRect.width * 0.8;
+                canvasHeight = canvasWidth / sourceAspect;
+            } else {
+                canvasHeight = containerRect.height * 0.8;
+                canvasWidth = canvasHeight * sourceAspect;
+            }
+
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+
+            baseCanvasSize = { width: canvasWidth, height: canvasHeight };
+        }
+
+        // NEW: Draw image with aspect ratio and rotation
+        function drawImageWithAspectAndRotation(ctx, img, canvasWidth, canvasHeight, rotation = 0) {
+            let imgWidth = img.videoWidth || img.width;
+            let imgHeight = img.videoHeight || img.height;
+
+            if (!imgWidth || !imgHeight) return null;
+
+            let imgAspect = imgWidth / imgHeight;
+            let canvasAspect = canvasWidth / canvasHeight;
+            let drawWidth, drawHeight, offsetX, offsetY;
+
+            if (imgAspect > canvasAspect) {
+                drawWidth = canvasWidth;
+                drawHeight = canvasWidth / imgAspect;
+                offsetX = 0;
+                offsetY = (canvasHeight - drawHeight) / 2;
+            } else {
+                drawHeight = canvasHeight;
+                drawWidth = canvasHeight * imgAspect;
+                offsetY = 0;
+                offsetX = (canvasWidth - drawWidth) / 2;
+            }
+
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            if (rotation !== 0) {
+                ctx.save();
+                ctx.translate(canvasWidth / 2, canvasHeight / 2);
+                ctx.rotate((rotation * Math.PI) / 180);
+                ctx.translate(-canvasWidth / 2, -canvasHeight / 2);
+            }
+
+            ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+            if (rotation !== 0) {
+                ctx.restore();
+            }
+
+            // Return the aspect information for coordinate transformation
+            return {
+                offsetX,
+                offsetY,
+                scaleX: drawWidth / imgWidth,
+                scaleY: drawHeight / imgHeight,
+                drawWidth,
+                drawHeight
+            };
+        }
+
+        function drawImageWithAspect(ctx, img, canvasWidth, canvasHeight) {
+            return drawImageWithAspectAndRotation(ctx, img, canvasWidth, canvasHeight, rotationAngle);
+        }
+
+        function getCurrentFrame() {
+            let tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            let tempCtx = tempCanvas.getContext('2d');
+
+            if (imageMode && loadedImages.length > 0) {
+                drawImageWithAspect(tempCtx, loadedImages[currentImageIndex], tempCanvas.width, tempCanvas.height);
+            } else {
+                drawImageWithAspect(tempCtx, video, tempCanvas.width, tempCanvas.height);
+            }
+
+            return tempCanvas;
+        }
+
+        // Enhanced color computation
+        function computeAverageForRectangle(rect) {
+            let frameCanvas = getCurrentFrame();
+            let tempCtx = frameCanvas.getContext('2d');
+            let data = tempCtx.getImageData(0, 0, frameCanvas.width, frameCanvas.height).data;
+            let [x1, y1, x2, y2] = rect;
+            let sum = [0, 0, 0], count = 0;
+
+            for (let y = Math.max(0, y1); y < Math.min(frameCanvas.height, y2); y++) {
+                for (let x = Math.max(0, x1); x < Math.min(frameCanvas.width, x2); x++) {
+                    let idx = (y * frameCanvas.width + x) * 4;
+                    if (idx + 2 < data.length) {
+                        sum[0] += data[idx];
+                        sum[1] += data[idx + 1];
+                        sum[2] += data[idx + 2];
+                        count++;
+                    }
+                }
+            }
+
+            if (count === 0) return [0, 0, 0];
+            let avgRGB = [
+                formatColorValue(sum[0] / count),
+                formatColorValue(sum[1] / count),
+                formatColorValue(sum[2] / count)
+            ];
+
+            return applyCalibratedRGB(avgRGB);
+        }
+
+        function computeAverageForCircle(circle) {
+            let frameCanvas = getCurrentFrame();
+            let tempCtx = frameCanvas.getContext('2d');
+            let data = tempCtx.getImageData(0, 0, frameCanvas.width, frameCanvas.height).data;
+            let [cx, cy, r] = circle;
+
+            let restrictedPercentage = parseInt(document.getElementById('restrictedAreaVal').value, 10) || 100;
+            let effectiveRadius = r * (restrictedPercentage / 100);
+
+            let sum = [0, 0, 0], count = 0;
+
+            for (let y = Math.max(0, Math.floor(cy - effectiveRadius));
+                y <= Math.min(frameCanvas.height - 1, Math.floor(cy + effectiveRadius)); y++) {
+                for (let x = Math.max(0, Math.floor(cx - effectiveRadius));
+                    x <= Math.min(frameCanvas.width - 1, Math.floor(cx + effectiveRadius)); x++) {
+                    let dx = x - cx, dy = y - cy;
+                    if (dx * dx + dy * dy <= effectiveRadius * effectiveRadius) {
+                        let idx = (y * frameCanvas.width + x) * 4;
+                        if (idx + 2 < data.length) {
+                            sum[0] += data[idx];
+                            sum[1] += data[idx + 1];
+                            sum[2] += data[idx + 2];
+                            count++;
+                        }
+                    }
+                }
+            }
+
+            if (count === 0) return [0, 0, 0];
+            let avgRGB = [
+                formatColorValue(sum[0] / count),
+                formatColorValue(sum[1] / count),
+                formatColorValue(sum[2] / count)
+            ];
+
+            return applyCalibratedRGB(avgRGB);
+        }
+
+        function generateSpeciesIcon(shape) {
+            let tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 40;
+            tempCanvas.height = 40;
+            let tempCtx = tempCanvas.getContext('2d');
+
+            let sourceImage;
+            if (shape.imageKey && shape.imageKey.startsWith('image_')) {
+                const imageIndex = parseInt(shape.imageKey.split('_')[1]);
+                if (imageIndex >= 0 && imageIndex < loadedImages.length) {
+                    sourceImage = loadedImages[imageIndex];
+                }
+            } else {
+                // For live video, we can't easily grab the icon. Show color instead.
+                tempCtx.fillStyle = `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})`;
+                tempCtx.fillRect(0, 0, 40, 40);
+                return tempCanvas.toDataURL();
+            }
+
+            if (!sourceImage) return tempCanvas.toDataURL();
+
+            // Use the original shape coordinates to crop from the source image
+            if (shape.type === "rectangle") {
+                let [x1, y1, x2, y2] = shape.coords;
+                let w = x2 - x1;
+                let h = y2 - y1;
+                tempCtx.drawImage(sourceImage, x1, y1, w, h, 0, 0, 40, 40);
+            } else if (shape.type === "circle") {
+                let [cx, cy, r] = shape.coords;
+                tempCtx.drawImage(sourceImage, cx - r, cy - r, r * 2, r * 2, 0, 0, 40, 40);
+            }
+
+            return tempCanvas.toDataURL();
+        }
+
+        // Returns CMYK from an RGB array
+        function rgbToCmyk(rgb) {
+            let [r, g, b] = rgb.map(v => parseFloat(v));
+            if (r === 0 && g === 0 && b === 0) return [0, 0, 0, 100].map(formatColorValue);
+
+            let rNorm = r / 255, gNorm = g / 255, bNorm = b / 255;
+            let k = 1 - Math.max(rNorm, gNorm, bNorm);
+            if (k === 1) return [0, 0, 0, 100].map(formatColorValue);
+
+            let c = (1 - rNorm - k) / (1 - k);
+            let m = (1 - gNorm - k) / (1 - k);
+            let y = (1 - bNorm - k) / (1 - k);
+
+            return [
+                formatColorValue(c * 100),
+                formatColorValue(m * 100),
+                formatColorValue(y * 100),
+                formatColorValue(k * 100)
+            ];
+        }
+
+        // Draw all finalized shapes and current shape being drawn
+        function drawSelections(ctx) {
+            let removalSelect = document.getElementById('circleSelect');
+            let selectedLabel = removalSelect ? removalSelect.value : null;
+
+            // Draw bounding box if it exists
+            if (boundingBox) {
+                ctx.strokeStyle = "rgba(100, 100, 100, 0.7)";
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(boundingBox[0], boundingBox[1], boundingBox[2] - boundingBox[0], boundingBox[3] - boundingBox[1]);
+                ctx.setLineDash([]);
+            }
+
+            // Draw drawing bounding box
+            if (drawingBoundingBox && boundingBoxStart) {
+                ctx.strokeStyle = "rgba(255, 193, 7, 0.8)";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(boundingBoxStart.x, boundingBoxStart.y, currentMousePos.x - boundingBoxStart.x, currentMousePos.y - boundingBoxStart.y);
+            }
+
+            shapes.forEach(shape => {
+                let label = shape.label;
+                if (shape.type === "rectangle") {
+                    let [x1, y1, x2, y2] = shape.coords;
+                    ctx.fillStyle = "rgba(50,200,50,0.2)";
+                    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+                    ctx.strokeStyle = "rgb(0,255,100)";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+                    let colorText = (colorMode === "CMYK") ?
+                        `CMYK: ${rgbToCmyk(shape.color).join(', ')}` :
+                        `RGB: ${shape.color.map(v => formatColorValue(v)).join(', ')}`;
+                    let text = `${label}: ${colorText}`;
+                    ctx.font = "14px 'Segoe UI', Arial, sans-serif";
+                    ctx.fillStyle = `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})`;
+                    ctx.fillText(text, x1, y1 - 8);
+
+                    if (label === selectedLabel) {
+                        ctx.strokeStyle = "red";
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(x1 - 2, y1 - 2, (x2 - x1) + 4, (y2 - y1) + 4);
+                    }
+                } else if (shape.type === "circle") {
+                    let [cx, cy, r] = shape.coords;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = "lime";
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 3, 0, 2 * Math.PI);
+                    ctx.fillStyle = "red";
+                    ctx.fill();
+
+                    let colorText = (colorMode === "CMYK") ?
+                        `CMYK: ${rgbToCmyk(shape.color).join(', ')}` :
+                        `RGB: ${shape.color.map(v => formatColorValue(v)).join(', ')}`;
+                    let text = `${label}: ${colorText}`;
+                    ctx.font = "14px 'Segoe UI', Arial, sans-serif";
+                    ctx.fillStyle = `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})`;
+                    ctx.fillText(text, cx + r + 10, cy);
+
+                    if (label === selectedLabel) {
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, r + 3, 0, 2 * Math.PI);
+                        ctx.strokeStyle = "red";
+                        ctx.lineWidth = 4;
+                        ctx.stroke();
+                    }
+                }
+            });
+
+            // Draw the temporary shape currently being drawn
+            if (currentShape) {
+                if (currentShape.type === "rectangle") {
+                    let [x1, y1, x2, y2] = currentShape.coords;
+                    ctx.fillStyle = "rgba(50,200,50,0.2)";
+                    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+                    ctx.strokeStyle = "rgb(0,255,100)";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                } else if (currentShape.type === "circle") {
+                    let [cx, cy, r] = currentShape.coords;
+                    ctx.fillStyle = "rgba(50,200,50,0.2)";
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = "rgb(0,255,100)";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(cx - 5, cy);
+                    ctx.lineTo(cx + 5, cy);
+                    ctx.moveTo(cx, cy - 5);
+                    ctx.lineTo(cx, cy + 5);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Returns canvas coordinates adjusted for zoom
+        function getMappedCoordinates(e) {
+            let rect = canvas.getBoundingClientRect();
+            let x = Math.floor((e.clientX - rect.left) / zoomLevel);
+            let y = Math.floor((e.clientY - rect.top) / zoomLevel);
+            return [x, y];
+        }
+
+        function mainLoop() {
+            if (isGridView) {
+                requestAnimationFrame(mainLoop);
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw current image
+            if (imageMode && loadedImages.length > 0 && loadedImages[currentImageIndex]) {
+                drawImageWithAspect(ctx, loadedImages[currentImageIndex], canvas.width, canvas.height);
+            } else if (!imageMode && streaming) {
+                drawImageWithAspect(ctx, video, canvas.width, canvas.height);
+            }
+
+            // Draw shapes and selections
+            drawSelections(ctx);
+
+            // Update color display with current cursor color
+            let tempFrame = getCurrentFrame();
+            let tempCtx = tempFrame.getContext('2d');
+            let x = Math.floor(currentMousePos.x / zoomLevel);
+            let y = Math.floor(currentMousePos.y / zoomLevel);
+            let cursorColor = [0, 0, 0];
+
+            if (x >= 0 && y >= 0 && x < tempFrame.width && y < tempFrame.height) {
+                let pixel = tempCtx.getImageData(x, y, 1, 1).data;
+                cursorColor = [pixel[0], pixel[1], pixel[2]];
+            }
+
+            // Apply calibration to cursor color
+            let displayedCursorColor = applyCalibratedRGB(cursorColor);
+
+            // Update color display
+            let colorText = (colorMode === "CMYK") ?
+                `CMYK: ${rgbToCmyk(displayedCursorColor).join(', ')}` :
+                `RGB: ${displayedCursorColor.join(', ')}`;
+
+            const colorDisplay = document.getElementById('colorDisplay');
+            const modeText = selectionMode === 'rectangle' ? '■ Rectangle' : '● Circle';
+            const modeColor = selectionMode === 'rectangle' ? '#4a90e2' : '#28a745';
+            colorDisplay.innerHTML = `
+                <div style="margin-bottom: 4px;">${colorText}</div>
+                <div style="margin-bottom: 4px; color: ${modeColor}; font-weight: bold;">Mode: ${modeText}</div>
+                <div style="font-size: 9px; color: rgba(255,255,255,0.6); line-height: 1.3;">
+                    [1]Rect [2]Circle [←→]Navigate<br>
+                    [B]Bound [C]Snap [O]Open [R]Reset [A]Auto [G]Grid
+                </div>
+            `;
+
+            requestAnimationFrame(mainLoop);
+        }
+
+        // FIXED: Grid view is read-only, markers should be visible and SCALED
+        function drawShapeOnGridCanvas(ctx, shape, mainCanvasAspect, gridCanvasAspect) {
+            // Un-project the shape coordinates from the main canvas back to original image space
+            let originalCoords = {};
+            if (shape.type === 'rectangle') {
+                const [x1, y1, x2, y2] = shape.coords;
+                // Ensure we have valid aspect info
+                const scaleX = mainCanvasAspect.scaleX || 1;
+                const scaleY = mainCanvasAspect.scaleY || 1;
+                const offsetX = mainCanvasAspect.offsetX || 0;
+                const offsetY = mainCanvasAspect.offsetY || 0;
+                
+                originalCoords.x1 = (x1 - offsetX) / scaleX;
+                originalCoords.y1 = (y1 - offsetY) / scaleY;
+                originalCoords.x2 = (x2 - offsetX) / scaleX;
+                originalCoords.y2 = (y2 - offsetY) / scaleY;
+            } else { // circle
+                const [cx, cy, r] = shape.coords;
+                const scaleX = mainCanvasAspect.scaleX || 1;
+                const scaleY = mainCanvasAspect.scaleY || 1;
+                const offsetX = mainCanvasAspect.offsetX || 0;
+                const offsetY = mainCanvasAspect.offsetY || 0;
+                const minScale = Math.min(scaleX, scaleY);
+                
+                originalCoords.cx = (cx - offsetX) / scaleX;
+                originalCoords.cy = (cy - offsetY) / scaleY;
+                originalCoords.r = r / minScale;
+            }
+
+            // Re-project the original image space coordinates onto the new grid canvas
+            ctx.strokeStyle = "rgba(0, 255, 100, 0.9)";
+            ctx.lineWidth = 2;
+            ctx.font = "bold 12px Arial";
+            ctx.fillStyle = "white";
+            ctx.shadowColor = "black";
+            ctx.shadowBlur = 4;
+
+            if (shape.type === 'rectangle') {
+                const scaleX = gridCanvasAspect.scaleX || 1;
+                const scaleY = gridCanvasAspect.scaleY || 1;
+                const offsetX = gridCanvasAspect.offsetX || 0;
+                const offsetY = gridCanvasAspect.offsetY || 0;
+                
+                const gridX1 = originalCoords.x1 * scaleX + offsetX;
+                const gridY1 = originalCoords.y1 * scaleY + offsetY;
+                const gridX2 = originalCoords.x2 * scaleX + offsetX;
+                const gridY2 = originalCoords.y2 * scaleY + offsetY;
+                
+                ctx.strokeRect(gridX1, gridY1, gridX2 - gridX1, gridY2 - gridY1);
+                ctx.fillText(shape.label, gridX1 + 3, gridY1 + 12);
+            } else { // circle
+                const scaleX = gridCanvasAspect.scaleX || 1;
+                const scaleY = gridCanvasAspect.scaleY || 1;
+                const offsetX = gridCanvasAspect.offsetX || 0;
+                const offsetY = gridCanvasAspect.offsetY || 0;
+                const minScale = Math.min(scaleX, scaleY);
+                
+                const gridCX = originalCoords.cx * scaleX + offsetX;
+                const gridCY = originalCoords.cy * scaleY + offsetY;
+                const gridR = originalCoords.r * minScale;
+                
+                ctx.beginPath();
+                ctx.arc(gridCX, gridCY, gridR, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.fillText(shape.label, gridCX - 4, gridCY + 4);
+            }
+            ctx.shadowBlur = 0; // Reset shadow
+        }
+
+        // ENHANCED: Interactive tooltip system
+        function showPointTooltip(e, pt, xVal, yVal, component) {
+            hidePointTooltip();
+
+            currentTooltip = document.createElement('div');
+            currentTooltip.className = 'chart-tooltip';
+            currentTooltip.style.cssText = `
+                position: fixed;
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                pointer-events: none;
+                z-index: 10000;
+                border: 1px solid #4a90e2;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            `;
+
+            currentTooltip.innerHTML = `
+                <div><strong>Species:</strong> ${pt.label}</div>
+                <div><strong>X:</strong> ${xVal.toFixed(3)}</div>
+                <div><strong>Y:</strong> ${yVal.toFixed(3)}</div>
+                <div><strong>Component:</strong> ${component}</div>
+            `;
+
+            document.body.appendChild(currentTooltip);
+
+            const rect = currentTooltip.getBoundingClientRect();
+            currentTooltip.style.left = (e.clientX - rect.width / 2) + 'px';
+            currentTooltip.style.top = (e.clientY - rect.height - 10) + 'px';
+        }
+
+        function hidePointTooltip() {
+            if (currentTooltip) {
+                document.body.removeChild(currentTooltip);
+                currentTooltip = null;
+            }
+        }
+
+        // ENHANCED: Chart drawing with proper axis swapping and interactive features
+        function drawComponentChart(component, pts, model) {
+            const canvasId = component + 'Chart';
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            const pad = 35;
+
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = "#111";
+            ctx.fillRect(0, 0, W, H);
+
+            // ENHANCED: Proper axis swapping logic
+            let xValues, yValues, xLabel, yLabel;
+            if (axesSwapped) {
+                // X: Concentration, Y: Color
+                xValues = pts.map(p => p.y);
+                yValues = pts.map(p => p[component]);
+                xLabel = 'Concentration (M)';
+                yLabel = component.charAt(0).toUpperCase() + component.slice(1) + ' Value';
+            } else {
+                // X: Color, Y: Concentration
+                xValues = pts.map(p => p[component]);
+                yValues = pts.map(p => p.y);
+                xLabel = component.charAt(0).toUpperCase() + component.slice(1) + ' Value';
+                yLabel = 'Concentration (M)';
+            }
+
+            const xMin = Math.min(...xValues);
+            const xMax = Math.max(...xValues);
+            const yMin = Math.min(...yValues);
+            const yMax = Math.max(...yValues);
+
+            const xRange = xMax - xMin || 1;
+            const yRange = yMax - yMin || 1;
+            const xPad = xRange * 0.1;
+            const yPad = yRange * 0.1;
+
+            const toX = x => pad + ((x - (xMin - xPad)) / (xRange + 2 * xPad)) * (W - 2 * pad);
+            const toY = y => H - pad - ((y - (yMin - yPad)) / (yRange + 2 * yPad)) * (H - 2 * pad);
+
+            // ENHANCED: Draw grid with scale labels if enabled
+            const showScales = document.getElementById('showScalesToggle').checked;
+            if (showScales) {
+                ctx.strokeStyle = "#333";
+                ctx.lineWidth = 1;
+                ctx.fillStyle = "#aaa";
+                ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+                ctx.textAlign = "center";
+
+                for (let i = 0; i <= 5; i++) {
+                    const x = pad + (i / 5) * (W - 2 * pad);
+                    const y = pad + (i / 5) * (H - 2 * pad);
+
+                    // Vertical grid lines with X-axis labels
+                    ctx.beginPath();
+                    ctx.moveTo(x, pad);
+                    ctx.lineTo(x, H - pad);
+                    ctx.stroke();
+
+                    const xVal = (xMin - xPad) + (i / 5) * (xRange + 2 * xPad);
+                    ctx.fillText(xVal.toFixed(2), x, H - pad + 15);
+
+                    // Horizontal grid lines with Y-axis labels
+                    ctx.beginPath();
+                    ctx.moveTo(pad, y);
+                    ctx.lineTo(W - pad, y);
+                    ctx.stroke();
+
+                    const yVal = (yMax + yPad) - (i / 5) * (yRange + 2 * yPad);
+                    ctx.textAlign = "right";
+                    ctx.fillText(yVal.toFixed(2), pad - 5, y + 3);
+                    ctx.textAlign = "center";
+                }
+            }
+
+            // Draw axes
+            ctx.strokeStyle = "#ccc";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(pad, H - pad);
+            ctx.lineTo(W - pad, H - pad);
+            ctx.moveTo(pad, H - pad);
+            ctx.lineTo(pad, pad);
+            ctx.stroke();
+
+            // ENHANCED: Interactive data points with hover detection
+            const pointRadius = 6;
+            const hoverRadius = 10;
+
+            pts.forEach((pt, index) => {
+                const x = toX(xValues[index]);
+                const y = toY(yValues[index]);
+
+                // Store point data for hover detection
+                canvas.addEventListener('mousemove', function (e) {
+                    const rect = canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    const distance = Math.sqrt(Math.pow(mouseX - x, 2) + Math.pow(mouseY - y, 2));
+
+                    if (distance <= hoverRadius) {
+                        showPointTooltip(e, pt, xValues[index], yValues[index], component);
+                    } else {
+                        hidePointTooltip();
+                    }
+                });
+
+                ctx.beginPath();
+                ctx.arc(x, y, pointRadius, 0, 2 * Math.PI);
+                ctx.fillStyle = "#4a90e2";
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+
+            // ENHANCED: Toggleable regression line and R² display
+            const showRegression = document.getElementById('showRegressionToggle').checked;
+            if (showRegression && model && model.m !== undefined && model.b !== undefined) {
+                ctx.strokeStyle = "#ff6b6b";
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+
+                const x1 = xMin - xPad;
+                const x2 = xMax + xPad;
+                let y1, y2;
+
+                if (axesSwapped) {
+                    y1 = (x1 - model.b) / model.m;
+                    y2 = (x2 - model.b) / model.m;
+                } else {
+                    y1 = model.m * x1 + model.b;
+                    y2 = model.m * x2 + model.b;
+                }
+
+                ctx.moveTo(toX(x1), toY(y1));
+                ctx.lineTo(toX(x2), toY(y2));
+                ctx.stroke();
+
+                // Display equation and R²
+                ctx.fillStyle = "#ff6b6b";
+                ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+                ctx.textAlign = "right";
+
+                const interceptSign = model.b >= 0 ? '+' : '-';
+                const interceptValue = Math.abs(model.b);
+
+                ctx.fillText(`y = ${model.m.toFixed(6)}x ${interceptSign} ${interceptValue.toFixed(6)}`, W - 10, 20);
+                ctx.fillText(`R² = ${model.r2.toFixed(4)}`, W - 10, 35);
+            }
+
+            // ENHANCED: Proper axis labels
+            ctx.fillStyle = "#eee";
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(xLabel, W / 2, H - 8);
+
+            ctx.save();
+            ctx.translate(12, H / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(yLabel, 0, 0);
+            ctx.restore();
+        }
+
+        // OpenCV ready callback
+        function onOpenCvReady() {
+            console.log("OpenCV.js is ready.");
+            startVideo();
+        }
+
+        function startVideo() {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(function (stream) {
+                    video.srcObject = stream;
+                    video.play();
+                })
+                .catch(function (err) {
+                    console.error("Error accessing webcam: " + err);
+                });
+
+            video.addEventListener('canplay', function () {
+                if (!streaming) {
+                    streaming = true;
+                    resizeCanvasToAspect();
+                    updateCurrentShapes();
+                    requestAnimationFrame(mainLoop);
+                }
+            });
+
+            window.addEventListener('resize', function () {
+                if (streaming && !isGridView) {
+                    resizeCanvasToAspect();
+                }
+            });
+        }
+
+        // Mouse events for drawing shapes, bounding box, and calibration
+        canvas.addEventListener('mousedown', function (e) {
+            if (isGridView) return;
+            let [x, y] = getMappedCoordinates(e);
+            if (e.button !== 0) return;
+
+            if (calibrationMode) {
+                const color = calibrationSteps[calibrationStep];
+                let tempFrame = getCurrentFrame();
+                let pixel = tempFrame.getContext('2d').getImageData(x, y, 1, 1).data;
+                calibrationData[color] = [pixel[0], pixel[1], pixel[2]];
+
+                calibrationStep++;
+                updateCalibrationUI();
+
+                if (calibrationStep >= calibrationSteps.length) {
+                    calculateRGBOffsets();
+                }
+                return;
+            }
+
+            if (boundingBoxMode) {
+                drawingBoundingBox = true;
+                boundingBoxStart = { x, y };
+                return;
+            }
+
+            currentDrag = [x, y];
+        });
+
+        canvas.addEventListener('mousemove', function (e) {
+            if (isGridView) return;
+            let pos = getMappedCoordinates(e);
+            currentMousePos = { x: pos[0], y: pos[1] };
+
+            if (drawingBoundingBox) {
+                return; // visual update handled in mainLoop
+            }
+
+            if (!currentDrag) return;
+
+            if (selectionMode === "rectangle") {
+                let x1 = currentDrag[0], y1 = currentDrag[1];
+                let x2 = pos[0], y2 = pos[1];
+                // Only update if the shape is meaningful size (> 3 pixels)
+                if (Math.abs(x2 - x1) > 3 || Math.abs(y2 - y1) > 3) {
+                    currentShape = {
+                        type: "rectangle",
+                        coords: [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]
+                    };
+                }
+            } else if (selectionMode === "circle") {
+                let dx = pos[0] - currentDrag[0], dy = pos[1] - currentDrag[1];
+                let r = Math.floor(Math.sqrt(dx * dx + dy * dy));
+                // Only update if the radius is meaningful (> 3 pixels)
+                if (r > 3) {
+                    currentShape = {
+                        type: "circle",
+                        coords: [currentDrag[0], currentDrag[1], r]
+                    };
+                }
+            }
+        });
+
+        canvas.addEventListener('mouseup', function (e) {
+            if (isGridView || e.button !== 0) return;
+            let [x, y] = getMappedCoordinates(e);
+
+            if (drawingBoundingBox) {
+                boundingBox = [
+                    Math.min(boundingBoxStart.x, x),
+                    Math.min(boundingBoxStart.y, y),
+                    Math.max(boundingBoxStart.x, x),
+                    Math.max(boundingBoxStart.y, y)
+                ];
+                drawingBoundingBox = false;
+                boundingBoxStart = null;
+                setBoundingBoxMode(); // Exit mode after setting
+                return;
+            }
+
+            // Validate we have a complete shape to commit
+            if (!currentDrag || !currentShape) {
+                currentDrag = null;
+                currentShape = null;
+                return;
+            }
+            
+            // Ensure the shape has valid coordinates
+            if (currentShape.type === 'rectangle') {
+                const [x1, y1, x2, y2] = currentShape.coords;
+                if (Math.abs(x2 - x1) < 5 || Math.abs(y2 - y1) < 5) {
+                    // Too small, discard
+                    currentDrag = null;
+                    currentShape = null;
+                    return;
+                }
+            } else if (currentShape.type === 'circle') {
+                const [cx, cy, r] = currentShape.coords;
+                if (r < 5) {
+                    // Too small, discard
+                    currentDrag = null;
+                    currentShape = null;
+                    return;
+                }
+            }
+
+            const imageKey = getCurrentImageKey();
+            if (!shapesByImage[imageKey]) {
+                shapesByImage[imageKey] = [];
+            }
+
+            if (selectionMode === "rectangle") {
+                let avg = computeAverageForRectangle(currentShape.coords);
+                shapesByImage[imageKey].push({ ...currentShape, color: avg, auto: false, label: getNextAvailableLabel(), imageKey, creationTime: Date.now() });
+            } else if (selectionMode === "circle") {
+                let avg = computeAverageForCircle(currentShape.coords);
+                shapesByImage[imageKey].push({ ...currentShape, color: avg, auto: false, label: getNextAvailableLabel(), imageKey, creationTime: Date.now() });
+            }
+
+            updateCurrentShapes();
+            updateShapeList();
+            currentDrag = null;
+            currentShape = null;
+        });
+
+        // Mouse wheel zoom
+        canvas.addEventListener('wheel', function (e) {
+            if (isGridView) return;
+            e.preventDefault();
+
+            if (e.deltaY < 0) {
+                zoomIn();
+            } else {
+                zoomOut();
+            }
+        });
+
+        // Prevent context menu
+        canvas.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+
+        // ENHANCED: Reset functionality for grid mode
+        function resetAllGridShapes() {
+            Object.keys(shapesByImage).forEach(imageKey => {
+                if (shapesByImage[imageKey]) {
+                    shapesByImage[imageKey] = [];
+                }
+            });
+            updateCurrentShapes();
+            if (isGridView) updateGridView();
+            updateShapeList();
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function (e) {
+            let key = e.key.toLowerCase();
+
+            // Prevent shortcuts when typing in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+                return;
+            }
+
+            // Image navigation with arrow keys
+            if ((key === 'arrowleft' || key === 'arrowright') && imageMode && loadedImages.length > 1) {
+                e.preventDefault();
+                if (key === 'arrowleft') {
+                    currentImageIndex = (currentImageIndex - 1 + loadedImages.length) % loadedImages.length;
+                } else {
+                    currentImageIndex = (currentImageIndex + 1) % loadedImages.length;
+                }
+                resizeCanvasToAspect();
+                updateCurrentShapes();
+                updateImageThumbnails();
+                if (isGridView) {
+                    updateGridView();
+                }
+                return;
+            }
+
+            if (key === '1') {
+                selectionMode = "rectangle";
+                console.log('Selection mode: Rectangle');
+            } else if (key === '2') {
+                selectionMode = "circle";
+                console.log('Selection mode: Circle');
+            } else if (key === 'g') {
+                toggleGridView();
+            } else if (key === 'b') {
+                setBoundingBoxMode();
+            } else if (key === 'c' && !e.ctrlKey) {
+                let timestamp = new Date().toISOString().replace(/[:\-T.]/g, '');
+                let dataURL = canvas.toDataURL('image/png');
+                let link = document.createElement('a');
+                link.download = `capture_${timestamp}.png`;
+                link.href = dataURL;
+                link.click();
+            } else if (key === 'o') {
+                fileInput.click();
+            } else if (key === 'r') {
+                if (isGridView) {
+                    resetAllGridShapes();
+                } else {
+                    const imageKey = getCurrentImageKey();
+                    if (shapesByImage[imageKey]) {
+                        shapesByImage[imageKey] = [];
+                    }
+                    updateCurrentShapes();
+                    updateShapeList();
+                }
+            } else if (key === 'a') {
+                if (isGridView) {
+                    autoDetectAllImages();
+                } else {
+                    const imageKey = getCurrentImageKey();
+                    const imageIndex = imageKey.startsWith('image_') ? parseInt(imageKey.split('_')[1]) : -1;
+                    autoDetectOnImage(imageIndex);
+                }
+            }
+        });
+
+        // Event listeners setup
+        document.getElementById('gridToggleBtn').addEventListener('click', toggleGridView);
+        document.getElementById('autoDetectAllBtn').addEventListener('click', autoDetectAllImages);
+        document.getElementById('resetAllGridBtn').addEventListener('click', resetAllGridShapes);
+
+        // Zoom controls
+        document.getElementById('zoomInBtn').addEventListener('click', zoomIn);
+        document.getElementById('zoomOutBtn').addEventListener('click', zoomOut);
+        document.getElementById('zoomResetBtn').addEventListener('click', resetZoom);
+
+        // NEW: Rotation controls
+        document.getElementById('rotateLeftBtn').addEventListener('click', rotateLeft);
+        document.getElementById('rotateRightBtn').addEventListener('click', rotateRight);
+        document.getElementById('rotationResetBtn').addEventListener('click', resetRotation);
+
+        document.getElementById('precisionSelector').addEventListener('change', function () {
+            decimalPrecision = parseInt(this.value, 10);
+            updateRegressionTable();
+        });
+
+        document.getElementById('axisSwapSelector').addEventListener('change', function () {
+            axesSwapped = this.value === 'swapped';
+            computeMultipleRegressions();
+        });
+
+        document.getElementById('showRegressionToggle').addEventListener('change', computeMultipleRegressions);
+        document.getElementById('showScalesToggle').addEventListener('change', computeMultipleRegressions);
+
+        // Shape detection setup
+        document.getElementById('toggleDetectionModeBtn').addEventListener('click', toggleDetectionMode);
+
+        // Bounding box setup
+        document.getElementById('setBoundingBoxBtn').addEventListener('click', setBoundingBoxMode);
+        document.getElementById('clearBoundingBoxBtn').addEventListener('click', clearBoundingBox);
+
+        // Calibration setup
+        document.getElementById('calibrateBtn').addEventListener('click', () => {
+            if (calibrationMode) {
+                exitCalibration();
+            } else {
+                startCalibration();
+            }
+        });
+        document.getElementById('resetCalibrationBtn').addEventListener('click', () => {
+            calibrationData = { red: null, green: null, blue: null, yellow: null, pink: null };
+            rgbOffsets = { r: 0, g: 0, b: 0 };
+            calibrationStep = 0;
+            updateCalibrationUI();
+        });
+        document.getElementById('finishCalibrationBtn').addEventListener('click', exitCalibration);
+        document.getElementById('toggleRawTrueBtn').addEventListener('click', toggleRawTrue);
+
+        fileInput.addEventListener('change', function (e) {
+            let files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            let loadedCount = 0;
+            const totalFiles = files.length;
+            const startIndex = loadedImages.length;
+
+            files.forEach((file, fileIndex) => {
+                let imgElem = new Image();
+                imgElem.onload = function () {
+                    loadedImages.push(imgElem);
+                    loadedCount++;
+                    
+                    // If this is the first image being loaded, switch to it
+                    if (loadedImages.length === 1) {
+                        imageMode = true;
+                        currentImageIndex = 0;
+                        resizeCanvasToAspect();
+                        updateCurrentShapes();
+                    }
+                    
+                    // Update UI after all images are loaded
+                    if (loadedCount === totalFiles) {
+                        updateImageThumbnails();
+                        if (isGridView) {
+                            updateGridView();
+                        }
+                        console.log(`Loaded ${totalFiles} images successfully`);
+                    }
+                };
+                imgElem.onerror = function() {
+                    console.error(`Failed to load image: ${file.name}`);
+                    loadedCount++;
+                };
+                imgElem.src = URL.createObjectURL(file);
+            });
+        });
+
+        document.getElementById('addImagesBtn').addEventListener('click', () => fileInput.click());
+
+        function updateImageThumbnails() {
+            let container = document.getElementById('imageThumbnails');
+            container.innerHTML = '';
+
+            loadedImages.forEach((img, index) => {
+                let thumbnail = document.createElement('img');
+                thumbnail.src = img.src;
+                thumbnail.style.cssText = `
+                    width: 60px; height: 40px; object-fit: contain; 
+                    border: 2px solid #555; border-radius: 4px; margin: 2px; 
+                    cursor: pointer; transition: all 0.3s; background: #222;
+                `;
+                if (index === currentImageIndex) {
+                    thumbnail.style.borderColor = '#4a90e2';
+                    thumbnail.style.boxShadow = '0 0 8px rgba(74, 144, 226, 0.5)';
+                }
+                thumbnail.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    imageMode = true;
+                    resizeCanvasToAspect();
+                    updateCurrentShapes();
+                    updateImageThumbnails();
+                    // Clear any drawing state
+                    currentShape = null;
+                    currentDrag = null;
+                    if (isGridView) {
+                        toggleGridView();
+                    }
+                });
+                container.appendChild(thumbnail);
+            });
+        }
+
+        // Color mode selection
+        document.getElementById('quizRGB').addEventListener('click', function () {
+            colorMode = "RGB";
+            document.getElementById('circleRGB').classList.add('selected');
+            document.getElementById('circleCMYK').classList.remove('selected');
+            updateShapeList();
+            updateShapeDropdown();
+        });
+
+        document.getElementById('quizCMYK').addEventListener('click', function () {
+            colorMode = "CMYK";
+            document.getElementById('circleCMYK').classList.add('selected');
+            document.getElementById('circleRGB').classList.remove('selected');
+            updateShapeList();
+            updateShapeDropdown();
+        });
+
+        document.getElementById('circleRGB').classList.add('selected');
+
+        document.getElementById('toggleColorMode').addEventListener('click', function () {
+            regressionStudioColorMode = regressionStudioColorMode === "RGB" ? "CMYK" : "RGB";
+            document.getElementById('currentColorMode').textContent = regressionStudioColorMode;
+            updateRegressionTable();
+        });
+
+        document.getElementById('chartSelector').addEventListener('change', function () {
+            const selected = this.value;
+            const components = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'total'];
+
+            components.forEach(component => {
+                const chartDiv = document.getElementById(component + 'Chart').parentNode;
+                chartDiv.style.display = (selected === 'all' || selected === component) ? 'block' : 'none';
+            });
+
+            if (selected !== 'all' && regressionModels[selected]) {
+                const model = regressionModels[selected];
+                const interceptSign = model.b >= 0 ? '+' : '-';
+                const interceptValue = Math.abs(model.b);
+                document.getElementById('regressionOutput').innerHTML =
+                    `<div style="font-size: 14px; text-align: center;">
+                        <strong>${selected.charAt(0).toUpperCase() + selected.slice(1)}:</strong> 
+                        y = ${model.m.toFixed(6)}x ${interceptSign} ${interceptValue.toFixed(6)}, R² = ${model.r2.toFixed(4)}
+                    </div>`;
+            } else if (selected === 'all') {
+                computeMultipleRegressions();
+            }
+        });
+
+        document.getElementById('downloadCSV').addEventListener('click', function () {
+            const allShapes = Object.values(shapesByImage).flat();
+            if (allShapes.length === 0) {
+                alert("No data to export.");
+                return;
+            }
+
+            let csvContent = "Label,Red,Green,Blue,Cyan,Magenta,Yellow,Black,Known_Molarity,Image_Source,Image_Label\n";
+
+            allShapes.forEach(shape => {
+                const committedEntry = committedData.find(d => d.label === shape.label);
+                const molarity = committedEntry ? committedEntry.y : "";
+                const imageSource = shape.imageKey || "camera";
+                const imageLabel = imageLabels[shape.imageKey] || "Unlabeled";
+                const cmyk = rgbToCmyk(shape.color);
+
+                csvContent += `${shape.label},${shape.color.join(',')},${cmyk.join(',')},${molarity},${imageSource},"${imageLabel}"\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `color_analysis_data_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            alert("CSV exported successfully!");
+        });
+
+        function syncInputs(rangeElem, numberElem) {
+            rangeElem.addEventListener("input", () => numberElem.value = rangeElem.value);
+            numberElem.addEventListener("input", () => rangeElem.value = numberElem.value);
+            // Trigger auto-detection on change
+            const autoDetectOnChange = () => {
+                if (!isGridView) {
+                    const imageKey = getCurrentImageKey();
+                    const imageIndex = imageKey.startsWith('image_') ? parseInt(imageKey.split('_')[1]) : -1;
+                    autoDetectOnImage(imageIndex);
+                }
+            };
+            rangeElem.addEventListener("change", autoDetectOnChange);
+            numberElem.addEventListener("change", autoDetectOnChange);
+        }
+
+        ['param1', 'param2', 'minRadius', 'maxRadius', 'restrictedArea', 'minArea', 'maxArea', 'epsilon'].forEach(id => {
+            const range = document.getElementById(id + 'Range');
+            const val = document.getElementById(id + 'Val');
+            if(range && val) syncInputs(range, val);
+        });
+
+        function updateShapeList() {
+            let list = document.getElementById('circleList');
+            list.innerHTML = '';
+            shapes.forEach(shape => {
+                let li = document.createElement('li');
+                let calibratedColor = applyCalibratedRGB(shape.color);
+                let colorText = (colorMode === "CMYK") ?
+                    `CMYK: ${rgbToCmyk(calibratedColor).join(', ')}` :
+                    `RGB: ${calibratedColor.join(', ')}`;
+                li.textContent = `${shape.label}: ${colorText} (${shape.type}${shape.auto ? " (auto)" : ""})`;
+                list.appendChild(li);
+            });
+            updateShapeDropdown();
+        }
+
+        function updateShapeDropdown() {
+            let select = document.getElementById('circleSelect');
+            const currentSelection = select.value;
+            select.innerHTML = '';
+
+            shapes.forEach(shape => {
+                let option = document.createElement('option');
+                option.value = shape.label;
+                option.textContent = shape.label;
+                select.appendChild(option);
+            });
+
+            if ([...select.options].some(option => option.value === currentSelection)) {
+                select.value = currentSelection;
+            }
+        }
+
+        document.getElementById('removeCircleButton').addEventListener('click', function () {
+            let select = document.getElementById('circleSelect');
+            let selectedLabel = select.value;
+            if (!selectedLabel) return;
+            
+            let index = shapes.findIndex(s => s.label === selectedLabel);
+            if (index !== -1) {
+                shapes.splice(index, 1);
+                reassignLabels();
+                shapesByImage[getCurrentImageKey()] = shapes;
+                updateShapeList();
+                updateShapeDropdown();
+                
+                // Also update regression table if on that tab
+                if (document.getElementById('regressionTab').style.display !== 'none') {
+                    updateRegressionTable();
+                }
+            }
+        });
+
+        function updatePredictDropdown() {
+            const predictSel = document.getElementById('predictShapeSelect');
+            predictSel.innerHTML = '';
+            Object.values(shapesByImage).flat().forEach(shape => {
+                const opt = document.createElement('option');
+                opt.value = shape.label;
+                opt.textContent = shape.label;
+                predictSel.appendChild(opt);
+            });
+        }
+
+        // Update shape list periodically but less frequently to reduce overhead
+        setInterval(() => {
+            if (!isGridView) {
+                updateShapeList();
+            }
+        }, 2000);
+
+        function updateRegressionTable() {
+            const tbody = document.querySelector('#regressionTable tbody');
+            tbody.innerHTML = '';
+
+            Object.values(shapesByImage).flat().forEach(shape => {
+                const tr = document.createElement('tr');
+                const speciesIcon = generateSpeciesIcon(shape);
+                const calibratedColor = applyCalibratedRGB(shape.color);
+
+                tr.innerHTML = `
+                    <td>${shape.label}</td>
+                    <td>RGB: [${calibratedColor.join(',')}]</td>
+                    <td>CMYK: [${rgbToCmyk(calibratedColor).join(',')}]</td>
+                    <td><input type="number" step="0.01" min="0" data-label="${shape.label}"></td>
+                    <td><img src="${speciesIcon}" alt="${shape.label}" class="species-icon"></td>
+                    <td><button class="btn btn--danger btn--small" data-label="${shape.label}">Remove</button></td>`;
+                tbody.appendChild(tr);
+
+                tr.querySelector('button').addEventListener('click', e => {
+                    const lbl = e.currentTarget.dataset.label;
+                    committedData = committedData.filter(pt => pt.label !== lbl);
+                    localStorage.setItem('committedData', JSON.stringify(committedData));
+                    Object.keys(shapesByImage).forEach(key => {
+                        shapesByImage[key] = shapesByImage[key].filter(s => s.label !== lbl);
+                    });
+                    reassignLabels();
+                    updateCurrentShapes();
+                    e.currentTarget.closest('tr').remove();
+                    updatePredictDropdown();
+                });
+
+                const input = tr.querySelector('input');
+                input.addEventListener('input', function () {
+                    const y = parseFloat(this.value);
+                    const label = this.dataset.label;
+                    committedData = committedData.filter(pt => pt.label !== label);
+                    if (!isNaN(y)) {
+                        committedData.push({ label, y });
+                    }
+                    localStorage.setItem('committedData', JSON.stringify(committedData));
+                });
+            });
+            updatePredictDropdown();
+        }
+
+        function getPointsForRegression() {
+            const pts = [];
+            document.querySelectorAll('#regressionTable tbody tr').forEach(tr => {
+                const input = tr.querySelector('input');
+                const label = input.dataset.label;
+                const y = parseFloat(input.value);
+                if (isNaN(y)) return;
+
+                const shape = Object.values(shapesByImage).flat().find(s => s.label === label);
+                if (!shape) return;
+
+                const raw = applyCalibratedRGB(shape.color);
+                const cmyk = rgbToCmyk(raw);
+                const total = Math.round(Math.sqrt(raw[0] ** 2 + raw[1] ** 2 + raw[2] ** 2));
+
+                pts.push({ label, y, red: raw[0], green: raw[1], blue: raw[2], cyan: cmyk[0], magenta: cmyk[1], yellow: cmyk[2], total });
+            });
+            return pts;
+        }
+
+        document.getElementById('predictBtn').addEventListener('click', () => {
+            if (Object.keys(regressionModels).length === 0) {
+                alert('Run regression first.');
+                return;
+            }
+            const label = document.getElementById('predictShapeSelect').value;
+            const shape = Object.values(shapesByImage).flat().find(s => s.label === label);
+            if (!shape) return;
+
+            const raw = applyCalibratedRGB(shape.color);
+            const cmyk = rgbToCmyk(raw);
+            const total = Math.round(Math.sqrt(raw[0] ** 2 + raw[1] ** 2 + raw[2] ** 2));
+            const values = { red: raw[0], green: raw[1], blue: raw[2], cyan: cmyk[0], magenta: cmyk[1], yellow: cmyk[2], total };
+
+            let predictions = [];
+            Object.keys(regressionModels).forEach(key => {
+                const model = regressionModels[key];
+                const xVal = values[key];
+                let prediction;
+                if(axesSwapped) {
+                    prediction = (xVal - model.b) / model.m;
+                } else {
+                    prediction = model.m * xVal + model.b;
+                }
+                predictions.push(`${key}: ${prediction.toFixed(4)}`);
+            });
+
+            document.getElementById('predictOutput').innerHTML = `<strong>Predicted Molarity for ${label}:</strong><br>${predictions.join('<br>')}`;
+        });
+
+        document.getElementById('runRegressionBtn').addEventListener('click', computeMultipleRegressions);
+
+        function computeMultipleRegressions() {
+            const pts = getPointsForRegression();
+            if (pts.length < 2) {
+                alert('Please enter at least two known molarity values.');
+                return;
+            }
+
+            const components = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'total'];
+            regressionModels = {};
+            let outputHtml = `<div style="font-size: 14px; text-align: center;">`;
+
+            components.forEach(component => {
+                const model = calculateEnhancedRegression(pts, component);
+                if (model) {
+                    regressionModels[component] = model;
+                    const interceptSign = model.b >= 0 ? '+' : '-';
+                    const interceptValue = Math.abs(model.b);
+                    outputHtml += `<strong>${component.charAt(0).toUpperCase() + component.slice(1)}:</strong> y = ${model.m.toFixed(6)}x ${interceptSign} ${interceptValue.toFixed(6)}, R² = ${model.r2.toFixed(4)}<br>`;
+                    drawComponentChart(component, pts, model);
+                }
+            });
+
+            outputHtml += '</div>';
+            document.getElementById('regressionOutput').innerHTML = outputHtml;
+        }
+
+        document.getElementById('exportModelBtn').addEventListener('click', () => {
+            if (Object.values(shapesByImage).flat().length === 0) {
+                alert("No shapes to export.");
+                return;
+            }
+            const exportData = {
+                version: "2.8.1_image_switching_fixed",
+                timestamp: new Date().toISOString(),
+                colorMode, regressionStudioColorMode, decimalPrecision, committedData,
+                regressionModels, shapesByImage, imageLabels,
+                zoomLevel, axesSwapped, rotationAngle, boundingBox, calibrationData, rgbOffsets, rawRgbMode
+            };
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `color_analysis_v8_gridfix_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            alert("Model exported successfully!");
+        });
+
+        document.getElementById('importModelBtn').addEventListener('click', () => document.getElementById('importModelInput').click());
+
+        document.getElementById('importModelInput').addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const importData = JSON.parse(reader.result);
+                    if (!importData.version || !importData.shapesByImage) throw new Error("Invalid model file");
+
+                    shapesByImage = importData.shapesByImage || {};
+                    committedData = importData.committedData || [];
+                    regressionModels = importData.regressionModels || {};
+                    imageLabels = importData.imageLabels || {};
+                    colorMode = importData.colorMode || "RGB";
+                    regressionStudioColorMode = importData.regressionStudioColorMode || "RGB";
+                    decimalPrecision = importData.decimalPrecision || 3;
+                    zoomLevel = importData.zoomLevel || 1.0;
+                    axesSwapped = importData.axesSwapped || false;
+                    rotationAngle = importData.rotationAngle || 0;
+                    boundingBox = importData.boundingBox || null;
+                    calibrationData = importData.calibrationData || { red: null, green: null, blue: null, yellow: null, pink: null };
+                    rgbOffsets = importData.rgbOffsets || { r: 0, g: 0, b: 0 };
+                    rawRgbMode = importData.rawRgbMode === false ? false : true;
+
+                    document.getElementById('precisionSelector').value = decimalPrecision.toString();
+                    document.getElementById('axisSwapSelector').value = axesSwapped ? 'swapped' : 'normal';
+                    updateZoom();
+                    updateRotation();
+                    toggleRawTrue(); // to update button state
+
+                    updateCurrentShapes();
+                    updateRegressionTable();
+                    updateImageThumbnails();
+                    alert(`Model imported successfully!`);
+                } catch (err) {
+                    alert('Error importing model: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        const detectTab = document.getElementById('detectTab');
+        const regressionTab = document.getElementById('regressionTab');
+        const tabDetectBtn = document.getElementById('tabDetectBtn');
+        const tabRegressionBtn = document.getElementById('tabRegressionBtn');
+
+        document.getElementById('tabDetectBtn').addEventListener('click', () => showTab('detect'));
+        document.getElementById('tabRegressionBtn').addEventListener('click', () => showTab('regression'));
+
+        function showTab(tab) {
+            if (tab === 'detect') {
+                detectTab.style.display = 'block';
+                regressionTab.style.display = 'none';
+                tabDetectBtn.classList.add('selected');
+                tabRegressionBtn.classList.remove('selected');
+                // Ensure proper redraw when returning to detection tab
+                if (imageMode && loadedImages.length > 0) {
+                    resizeCanvasToAspect();
+                }
+            } else {
+                detectTab.style.display = 'none';
+                regressionTab.style.display = 'block';
+                tabDetectBtn.classList.remove('selected');
+                tabRegressionBtn.classList.add('selected');
+                updateRegressionTable();
+                updateImageThumbnails();
+                autoRestoreData();
+            }
+        }
+
+        function autoRestoreData() {
+            committedData.forEach(({ label, y }) => {
+                const input = document.querySelector(`#regressionTable input[data-label="${label}"]`);
+                if (input) input.value = y;
+            });
+        }
+
+        // Initialize OpenCV when ready
+        if (typeof cv !== 'undefined') {
+            onOpenCvReady();
+        }
+
+        // Initialize the application
+        updateCurrentShapes();
+        initializeDraggableUI();
+        updateModeIndicator();
+
+    </script>
+    <!-- Load OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+</body>
+</html>
