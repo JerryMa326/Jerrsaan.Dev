@@ -265,7 +265,7 @@ export function RegressionStudio() {
         scales: {
             x: {
                 type: 'linear' as const,
-                title: { display: true, text: 'Concentration', font: { size: 10 } },
+                title: { display: true, text: 'Concentration (mM)', font: { size: 10 } },
                 grid: { color: 'rgba(255,255,255,0.05)' }
             },
             y: {
@@ -278,10 +278,10 @@ export function RegressionStudio() {
 
     if (shapes.length === 0) {
         return (
-            <div className="h-full flex items-center justify-center">
-                <div className="text-center text-muted-foreground">
-                    <p className="text-lg">No data available</p>
-                    <p className="text-sm mt-2">Detect or draw shapes on images first</p>
+            <div className="h-full w-full flex items-center justify-center">
+                <div className="text-center text-muted-foreground max-w-xs mx-auto">
+                    <p className="text-lg font-medium">No data available</p>
+                    <p className="text-sm mt-2">Detect or draw shapes on images first, then return here for regression analysis.</p>
                 </div>
             </div>
         )
@@ -361,8 +361,8 @@ export function RegressionStudio() {
                                 <tr>
                                     <th className="p-1.5 text-left">Label</th>
                                     <th className="p-1.5 text-left">RGB</th>
-                                    <th className="p-1.5 text-left">Conc.</th>
-                                    <th className="p-1.5 text-left">Pred.</th>
+                                    <th className="p-1.5 text-left">Conc. (mM)</th>
+                                    <th className="p-1.5 text-left">Pred. (mM)</th>
                                 </tr>
                             </thead>
                             <tbody>

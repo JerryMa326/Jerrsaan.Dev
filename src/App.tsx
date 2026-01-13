@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown
+  Menu, X, ChevronDown, Plus
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { ImageViewer } from '@/components/features/ImageViewer'
@@ -186,11 +186,18 @@ function App() {
           <>
             {/* Left Sidebar - Image Thumbnails (Hidden on Mobile) */}
             <div className="hidden md:flex w-20 bg-card border-r flex-col shrink-0">
-              <div className="p-2 border-b">
+              <div className="p-2 border-b flex gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
                 <Button
                   size="sm"
                   variant={isGridView ? 'default' : 'ghost'}
-                  className="w-full"
                   onClick={() => setIsGridView(!isGridView)}
                 >
                   <Grid className="h-4 w-4" />
@@ -209,20 +216,18 @@ function App() {
                       setIsGridView(false)
                     }}
                   >
-                    <img src={img.src} className="w-full aspect-square object-cover" />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        className="h-6 w-6"
-                        onClick={(e) => {
-                          e.stopPropagation()
+                    <img src={img.src} className="w-full aspect-square object-cover" alt={`Image ${idx + 1}`} />
+                    <button
+                      className="absolute top-0.5 right-0.5 w-4 h-4 bg-black/60 hover:bg-destructive rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (window.confirm(`Delete image ${idx + 1}?`)) {
                           removeImage(idx)
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
+                        }
+                      }}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
                     <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-center py-0.5">
                       {idx + 1}
                     </div>
@@ -342,24 +347,51 @@ function App() {
                 </div>
                 <div className="flex-1 overflow-y-auto">
                   {mobilePanel === 'images' && (
-                    <div className="p-3 grid grid-cols-4 gap-2">
-                      {images.map((img, idx) => (
-                        <div
-                          key={idx}
-                          className={`relative cursor-pointer rounded overflow-hidden border-2 ${currentImageIndex === idx ? 'border-primary' : 'border-transparent'}`}
-                          onClick={() => {
-                            setCurrentImageIndex(idx)
-                            setMobilePanel('none')
-                          }}
-                        >
-                          <img src={img.src} className="w-full aspect-square object-cover" />
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-center">
-                            {idx + 1}
+                    <div className="p-3">
+                      <Button
+                        className="w-full mb-3"
+                        variant="outline"
+                        onClick={() => {
+                          fileInputRef.current?.click()
+                          setMobilePanel('none')
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-2" /> Add Images
+                      </Button>
+                      <div className="grid grid-cols-4 gap-2">
+                        {images.map((img, idx) => (
+                          <div
+                            key={idx}
+                            className={`relative cursor-pointer rounded overflow-hidden border-2 ${currentImageIndex === idx ? 'border-primary' : 'border-transparent'}`}
+                          >
+                            <img
+                              src={img.src}
+                              className="w-full aspect-square object-cover"
+                              alt={`Image ${idx + 1}`}
+                              onClick={() => {
+                                setCurrentImageIndex(idx)
+                                setMobilePanel('none')
+                              }}
+                            />
+                            <button
+                              className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 hover:bg-destructive rounded-full flex items-center justify-center"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (window.confirm(`Delete image ${idx + 1}?`)) {
+                                  removeImage(idx)
+                                }
+                              }}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-center">
+                              {idx + 1}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                       {images.length === 0 && (
-                        <div className="col-span-4 text-center py-8 text-muted-foreground">
+                        <div className="text-center py-8 text-muted-foreground">
                           No images loaded
                         </div>
                       )}
