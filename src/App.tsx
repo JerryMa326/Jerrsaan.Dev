@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
-  Beaker, Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
-  Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2
+  Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
+  Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
+  Menu, X, ChevronDown
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { ImageViewer } from '@/components/features/ImageViewer'
@@ -14,9 +15,10 @@ import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/op
 
 function App() {
   const [activeTab, setActiveTab] = useState<'detect' | 'analyze'>('detect')
-  const [showSettings, setShowSettings] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
   const [rightPanel, setRightPanel] = useState<'shapes' | 'colors'>('shapes')
   const [isDetecting, setIsDetecting] = useState(false)
+  const [mobilePanel, setMobilePanel] = useState<'none' | 'images' | 'info' | 'settings'>('none')
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
     removeImage, clearShapesForImage, isGridView, setIsGridView,
@@ -56,7 +58,6 @@ function App() {
     setIsDetecting(true)
 
     try {
-      // Clear existing shapes for this image first
       const existingLabels = new Set(shapes.filter(s => s.imageIndex !== currentImageIndex).map(s => s.label))
 
       let newShapes
@@ -69,7 +70,6 @@ function App() {
       if (newShapes.length === 0) {
         alert('No shapes detected. Try adjusting the detection parameters.')
       } else {
-        // Remove old shapes for this image and add new
         setShapes(prev => [
           ...prev.filter(s => s.imageIndex !== currentImageIndex),
           ...newShapes
@@ -91,19 +91,23 @@ function App() {
     if (currentImageIndex < images.length - 1) setCurrentImageIndex(currentImageIndex + 1)
   }
 
+  const currentShapeCount = shapes.filter(s => s.imageIndex === currentImageIndex).length
+
   return (
     <div className="flex h-screen w-full flex-col bg-background text-foreground overflow-hidden">
-      {/* Header */}
-      <header className="flex h-12 items-center justify-between border-b bg-card px-4 shrink-0 z-10">
+      {/* Header - Mobile Responsive */}
+      <header className="flex h-12 md:h-12 items-center justify-between border-b bg-card px-2 md:px-4 shrink-0 z-20">
         <div className="flex items-center gap-2">
-          <Beaker className="h-5 w-5 text-primary" />
-          <h1 className="text-sm font-semibold tracking-tight">
-            ChemClub Analyst
-            <span className="text-xs font-normal text-muted-foreground ml-1">v3.0</span>
+          <img src="/favicon-removebg-preview.png" alt="ChemClub" className="h-5 w-5 md:h-6 md:w-6" />
+          <h1 className="text-xs md:text-sm font-semibold tracking-tight">
+            <span className="hidden sm:inline">ChemClub Analyst</span>
+            <span className="sm:hidden">ChemClub</span>
+            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v3.0</span>
           </h1>
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* Desktop Tab Buttons */}
+        <div className="hidden sm:flex items-center gap-1">
           <Button
             variant={activeTab === 'detect' ? 'default' : 'ghost'}
             size="sm"
@@ -122,10 +126,30 @@ function App() {
           </Button>
         </div>
 
+        {/* Mobile Tab Buttons */}
+        <div className="flex sm:hidden items-center gap-0.5">
+          <Button
+            variant={activeTab === 'detect' ? 'default' : 'ghost'}
+            size="sm"
+            className="px-2 h-8"
+            onClick={() => setActiveTab('detect')}
+          >
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={activeTab === 'analyze' ? 'default' : 'ghost'}
+            size="sm"
+            className="px-2 h-8"
+            onClick={() => setActiveTab('analyze')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+        </div>
+
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="mr-1.5 h-4 w-4" />
-            Load
+          <Button variant="outline" size="sm" className="h-8 px-2 md:px-3" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-4 w-4 md:mr-1.5" />
+            <span className="hidden md:inline">Load</span>
           </Button>
           <input
             type="file"
@@ -135,22 +159,33 @@ function App() {
             accept="image/*"
             onChange={handleFileChange}
           />
+          {/* Desktop Settings */}
           <Button
             variant="ghost"
             size="icon"
+            className="hidden md:flex h-8 w-8"
             onClick={() => setShowSettings(!showSettings)}
           >
             <Settings className="h-4 w-4" />
+          </Button>
+          {/* Mobile Menu */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden h-8 w-8"
+            onClick={() => setMobilePanel(mobilePanel === 'none' ? 'settings' : 'none')}
+          >
+            {mobilePanel !== 'none' ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </Button>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative">
         {activeTab === 'detect' ? (
           <>
-            {/* Left Sidebar - Image Thumbnails */}
-            <div className="w-20 bg-card border-r flex flex-col shrink-0">
+            {/* Left Sidebar - Image Thumbnails (Hidden on Mobile) */}
+            <div className="hidden md:flex w-20 bg-card border-r flex-col shrink-0">
               <div className="p-2 border-b">
                 <Button
                   size="sm"
@@ -198,38 +233,64 @@ function App() {
 
             {/* Main Canvas Area */}
             <div className="flex-1 flex flex-col relative bg-neutral-900">
-              {/* Toolbar */}
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg">
-                <Button size="icon" variant="ghost" onClick={handlePrevImage} disabled={currentImageIndex === 0}>
+              {/* Toolbar - Responsive */}
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm px-1.5 md:px-2 py-1 rounded-lg">
+                <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="text-xs w-16 text-center">
-                  {images.length > 0 ? `${currentImageIndex + 1} / ${images.length}` : '—'}
+                <span className="text-[10px] md:text-xs w-12 md:w-16 text-center">
+                  {images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}
                 </span>
-                <Button size="icon" variant="ghost" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1}>
+                <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
-                <div className="w-px h-4 bg-muted-foreground/30 mx-1" />
-                <Button size="sm" variant="ghost" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting}>
-                  {isDetecting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Wand2 className="h-4 w-4 mr-1" />}
-                  {isDetecting ? 'Detecting...' : 'Auto'}
+                <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
+                <Button size="sm" variant="ghost" className="h-7 md:h-8 px-1.5 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting}>
+                  {isDetecting ? <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" /> : <Wand2 className="h-3 w-3 md:h-4 md:w-4" />}
+                  <span className="hidden sm:inline ml-1">{isDetecting ? 'Detecting...' : 'Auto'}</span>
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
+                  className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
                   onClick={() => clearShapesForImage(currentImageIndex)}
                   disabled={images.length === 0}
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Clear
+                  <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="hidden sm:inline ml-1">Clear</span>
                 </Button>
+              </div>
+
+              {/* Mobile Bottom Bar */}
+              <div className="md:hidden absolute bottom-0 left-0 right-0 z-10 flex bg-card/95 backdrop-blur-sm border-t">
+                <button
+                  className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'images' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
+                  onClick={() => setMobilePanel(mobilePanel === 'images' ? 'none' : 'images')}
+                >
+                  <Grid className="h-4 w-4" />
+                  <span>Images ({images.length})</span>
+                </button>
+                <button
+                  className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'info' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
+                  onClick={() => setMobilePanel(mobilePanel === 'info' ? 'none' : 'info')}
+                >
+                  <Palette className="h-4 w-4" />
+                  <span>Shapes ({currentShapeCount})</span>
+                </button>
+                <button
+                  className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'settings' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
+                  onClick={() => setMobilePanel(mobilePanel === 'settings' ? 'none' : 'settings')}
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>Settings</span>
+                </button>
               </div>
 
               {images.length > 0 ? (
                 <ImageViewer />
               ) : (
-                <div className="h-full w-full flex items-center justify-center">
-                  <div className="text-center space-y-4">
+                <div className="h-full w-full flex items-center justify-center pb-16 md:pb-0">
+                  <div className="text-center space-y-4 px-4">
                     <div className="text-muted-foreground">No images loaded</div>
                     <Button onClick={() => fileInputRef.current?.click()}>
                       <Upload className="mr-2 h-4 w-4" />
@@ -240,8 +301,8 @@ function App() {
               )}
             </div>
 
-            {/* Right Panel - Shapes/Colors */}
-            <div className="w-64 bg-card border-l flex flex-col shrink-0">
+            {/* Right Panel - Shapes/Colors (Hidden on Mobile) */}
+            <div className="hidden md:flex w-64 bg-card border-l flex-col shrink-0">
               <div className="flex border-b">
                 <button
                   className={`flex-1 py-2 text-xs font-medium transition-colors ${rightPanel === 'shapes' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
@@ -263,8 +324,70 @@ function App() {
               </div>
             </div>
 
-            {/* Settings Panel */}
-            {showSettings && <SettingsPanel />}
+            {/* Desktop Settings Panel */}
+            {showSettings && <div className="hidden md:block"><SettingsPanel /></div>}
+
+            {/* Mobile Slide-up Panels */}
+            {mobilePanel !== 'none' && (
+              <div className="md:hidden absolute inset-x-0 bottom-14 z-20 bg-card border-t rounded-t-xl shadow-xl max-h-[60vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200">
+                <div className="flex items-center justify-between p-3 border-b">
+                  <h3 className="font-semibold text-sm">
+                    {mobilePanel === 'images' && 'Images'}
+                    {mobilePanel === 'info' && 'Shapes & Colors'}
+                    {mobilePanel === 'settings' && 'Settings'}
+                  </h3>
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setMobilePanel('none')}>
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {mobilePanel === 'images' && (
+                    <div className="p-3 grid grid-cols-4 gap-2">
+                      {images.map((img, idx) => (
+                        <div
+                          key={idx}
+                          className={`relative cursor-pointer rounded overflow-hidden border-2 ${currentImageIndex === idx ? 'border-primary' : 'border-transparent'}`}
+                          onClick={() => {
+                            setCurrentImageIndex(idx)
+                            setMobilePanel('none')
+                          }}
+                        >
+                          <img src={img.src} className="w-full aspect-square object-cover" />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-center">
+                            {idx + 1}
+                          </div>
+                        </div>
+                      ))}
+                      {images.length === 0 && (
+                        <div className="col-span-4 text-center py-8 text-muted-foreground">
+                          No images loaded
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {mobilePanel === 'info' && (
+                    <div className="space-y-0">
+                      <div className="flex border-b">
+                        <button
+                          className={`flex-1 py-2 text-xs font-medium ${rightPanel === 'shapes' ? 'bg-muted' : ''}`}
+                          onClick={() => setRightPanel('shapes')}
+                        >
+                          Shapes
+                        </button>
+                        <button
+                          className={`flex-1 py-2 text-xs font-medium ${rightPanel === 'colors' ? 'bg-muted' : ''}`}
+                          onClick={() => setRightPanel('colors')}
+                        >
+                          Colors
+                        </button>
+                      </div>
+                      {rightPanel === 'shapes' ? <ShapesList /> : <ColorAnalysisPanel />}
+                    </div>
+                  )}
+                  {mobilePanel === 'settings' && <SettingsPanel />}
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <RegressionStudio />

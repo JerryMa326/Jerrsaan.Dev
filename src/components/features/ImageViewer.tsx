@@ -26,6 +26,8 @@ export function ImageViewer() {
     const [drawStart, setDrawStart] = useState({ x: 0, y: 0 })
     const [currentDraftShape, setCurrentDraftShape] = useState<Partial<Shape> | null>(null)
     const [spacePressed, setSpacePressed] = useState(false)
+    const [lastTouchDist, setLastTouchDist] = useState(0)
+    const [isTouchPanning, setIsTouchPanning] = useState(false)
 
     const currentImage = images[currentImageIndex]
 
@@ -81,21 +83,48 @@ export function ImageViewer() {
         const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
 
         currentShapes.forEach(shape => {
-            ctx.beginPath()
             ctx.lineWidth = 2 / zoomLevel
 
             if (shape.type === 'rectangle') {
+                // Draw outer rectangle
+                ctx.beginPath()
                 ctx.strokeStyle = '#3b82f6'
                 ctx.fillStyle = 'rgba(59, 130, 246, 0.1)'
                 ctx.rect(shape.x, shape.y, shape.width || 0, shape.height || 0)
                 ctx.fill()
+                ctx.stroke()
+
+                // Draw sample area rectangle (inner)
+                const sampleFactor = detectionSettings.restrictedArea / 100
+                const margin = (1 - sampleFactor) / 2
+                const sampleX = shape.x + (shape.width || 0) * margin
+                const sampleY = shape.y + (shape.height || 0) * margin
+                const sampleW = (shape.width || 0) * sampleFactor
+                const sampleH = (shape.height || 0) * sampleFactor
+                ctx.beginPath()
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.6)'
+                ctx.setLineDash([3 / zoomLevel, 3 / zoomLevel])
+                ctx.rect(sampleX, sampleY, sampleW, sampleH)
+                ctx.stroke()
+                ctx.setLineDash([])
             } else if (shape.type === 'circle') {
+                // Draw outer circle
+                ctx.beginPath()
                 ctx.strokeStyle = '#22c55e'
                 ctx.fillStyle = 'rgba(34, 197, 94, 0.1)'
                 ctx.arc(shape.x, shape.y, shape.radius || 0, 0, 2 * Math.PI)
                 ctx.fill()
+                ctx.stroke()
+
+                // Draw sample area circle (inner)
+                const sampleRadius = (shape.radius || 0) * (detectionSettings.restrictedArea / 100)
+                ctx.beginPath()
+                ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)'
+                ctx.setLineDash([3 / zoomLevel, 3 / zoomLevel])
+                ctx.arc(shape.x, shape.y, sampleRadius, 0, 2 * Math.PI)
+                ctx.stroke()
+                ctx.setLineDash([])
             }
-            ctx.stroke()
 
             // Label
             ctx.fillStyle = 'white'
@@ -125,7 +154,7 @@ export function ImageViewer() {
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea])
 
     useEffect(() => {
         draw()
@@ -290,68 +319,173 @@ export function ImageViewer() {
         setZoomLevel(newZoom)
     }
 
+    // Touch handlers for mobile
+    const getTouchPoint = (touch: React.Touch) => {
+        const canvas = canvasRef.current
+        if (!canvas || !currentImage) return { x: 0, y: 0 }
+        const rect = canvas.getBoundingClientRect()
+
+        const canvasX = touch.clientX - rect.left
+        const canvasY = touch.clientY - rect.top
+
+        const centerX = canvas.width / 2
+        const centerY = canvas.height / 2
+
+        let x = canvasX - centerX
+        let y = canvasY - centerY
+
+        const rad = (-rotationAngle * Math.PI) / 180
+        const cos = Math.cos(rad)
+        const sin = Math.sin(rad)
+        const rx = x * cos - y * sin
+        const ry = x * sin + y * cos
+
+        x = rx / zoomLevel + currentImage.width / 2 - offset.x / zoomLevel
+        y = ry / zoomLevel + currentImage.height / 2 - offset.y / zoomLevel
+
+        return { x, y }
+    }
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (e.touches.length === 2) {
+            // Pinch zoom start
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            )
+            setLastTouchDist(dist)
+            setIsTouchPanning(true)
+        } else if (e.touches.length === 1) {
+            const touch = e.touches[0]
+            if (drawingMode === 'none') {
+                // Pan mode
+                setIsTouchPanning(true)
+                setDragStart({ x: touch.clientX - offset.x, y: touch.clientY - offset.y })
+            } else {
+                // Draw mode
+                const pt = getTouchPoint(touch)
+                setIsDrawing(true)
+                setDrawStart(pt)
+                setCurrentDraftShape({
+                    x: pt.x,
+                    y: pt.y,
+                    width: 0,
+                    height: 0,
+                    radius: 0
+                })
+            }
+        }
+    }
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (e.touches.length === 2 && lastTouchDist > 0) {
+            // Pinch zoom
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            )
+            const scale = dist / lastTouchDist
+            setZoomLevel(Math.min(Math.max(0.1, zoomLevel * scale), 10))
+            setLastTouchDist(dist)
+        } else if (e.touches.length === 1) {
+            const touch = e.touches[0]
+            if (isTouchPanning && drawingMode === 'none') {
+                setOffset({
+                    x: touch.clientX - dragStart.x,
+                    y: touch.clientY - dragStart.y
+                })
+            } else if (isDrawing && currentDraftShape) {
+                const pt = getTouchPoint(touch)
+                if (drawingMode === 'rectangle') {
+                    setCurrentDraftShape({
+                        ...currentDraftShape,
+                        width: pt.x - drawStart.x,
+                        height: pt.y - drawStart.y
+                    })
+                } else if (drawingMode === 'circle') {
+                    const dx = pt.x - drawStart.x
+                    const dy = pt.y - drawStart.y
+                    const radius = Math.sqrt(dx * dx + dy * dy)
+                    setCurrentDraftShape({
+                        ...currentDraftShape,
+                        radius
+                    })
+                }
+            }
+        }
+    }
+
+    const handleTouchEnd = () => {
+        setLastTouchDist(0)
+        setIsTouchPanning(false)
+        handleMouseUp()
+    }
+
     return (
-        <div className="relative w-full h-full bg-neutral-900 overflow-hidden" ref={containerRef}>
+        <div className="relative w-full h-full bg-neutral-900 overflow-hidden pb-14 md:pb-0" ref={containerRef}>
             <canvas
                 ref={canvasRef}
-                className={`block ${isDragging ? 'cursor-grabbing' : (spacePressed || drawingMode === 'none') ? 'cursor-grab' : 'cursor-crosshair'}`}
+                className={`block touch-none ${isDragging ? 'cursor-grabbing' : (spacePressed || drawingMode === 'none') ? 'cursor-grab' : 'cursor-crosshair'}`}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
                 onWheel={handleWheel}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
             />
 
-            {/* Drawing Tools */}
-            <div className="absolute top-16 left-4 flex flex-col gap-1 bg-black/60 backdrop-blur-sm p-1.5 rounded-lg">
+            {/* Drawing Tools - Responsive */}
+            <div className="absolute top-16 md:top-16 left-2 md:left-4 flex flex-col gap-1 bg-black/60 backdrop-blur-sm p-1 md:p-1.5 rounded-lg">
                 <Button
                     size="icon"
                     variant={drawingMode === 'none' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('none')}
                     title="Pan/Select"
-                    className="h-8 w-8"
+                    className="h-7 w-7 md:h-8 md:w-8"
                 >
-                    <MousePointer2 className="h-4 w-4" />
+                    <MousePointer2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
                 <Button
                     size="icon"
                     variant={drawingMode === 'rectangle' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('rectangle')}
                     title="Draw Rectangle"
-                    className="h-8 w-8"
+                    className="h-7 w-7 md:h-8 md:w-8"
                 >
-                    <Square className="h-4 w-4" />
+                    <Square className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
                 <Button
                     size="icon"
                     variant={drawingMode === 'circle' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('circle')}
                     title="Draw Circle"
-                    className="h-8 w-8"
+                    className="h-7 w-7 md:h-8 md:w-8"
                 >
-                    <Circle className="h-4 w-4" />
+                    <Circle className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
             </div>
 
-            {/* Zoom/Rotation Controls */}
-            <div className="absolute bottom-4 right-4 flex gap-1 bg-black/60 backdrop-blur-sm p-1.5 rounded-lg">
-                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle - 1)} className="h-8 w-8">
-                    <RotateCcw className="h-4 w-4" />
+            {/* Zoom/Rotation Controls - Responsive */}
+            <div className="absolute bottom-16 md:bottom-4 right-2 md:right-4 flex gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm p-1 md:p-1.5 rounded-lg">
+                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle - 1)} className="h-7 w-7 md:h-8 md:w-8">
+                    <RotateCcw className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
-                <span className="flex items-center text-xs w-10 justify-center">{rotationAngle}°</span>
-                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle + 1)} className="h-8 w-8">
-                    <RotateCw className="h-4 w-4" />
+                <span className="hidden md:flex items-center text-xs w-10 justify-center">{rotationAngle}°</span>
+                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle + 1)} className="h-7 w-7 md:h-8 md:w-8">
+                    <RotateCw className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
-                <div className="w-px bg-muted-foreground/30 mx-1" />
-                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="h-8 w-8">
-                    <ZoomOut className="h-4 w-4" />
+                <div className="w-px bg-muted-foreground/30 mx-0.5 md:mx-1" />
+                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="h-7 w-7 md:h-8 md:w-8">
+                    <ZoomOut className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
-                <span className="flex items-center text-xs w-12 justify-center">{Math.round(zoomLevel * 100)}%</span>
-                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.min(10, zoomLevel + 0.1))} className="h-8 w-8">
-                    <ZoomIn className="h-4 w-4" />
+                <span className="hidden md:flex items-center text-xs w-12 justify-center">{Math.round(zoomLevel * 100)}%</span>
+                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.min(10, zoomLevel + 0.1))} className="h-7 w-7 md:h-8 md:w-8">
+                    <ZoomIn className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
-                <Button size="icon" variant="ghost" onClick={() => { setZoomLevel(1); setOffset({ x: 0, y: 0 }); setRotationAngle(0) }} className="h-8 w-8">
-                    <Maximize className="h-4 w-4" />
+                <Button size="icon" variant="ghost" onClick={() => { setZoomLevel(1); setOffset({ x: 0, y: 0 }); setRotationAngle(0) }} className="h-7 w-7 md:h-8 md:w-8">
+                    <Maximize className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
             </div>
         </div>

@@ -1,6 +1,25 @@
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
-import { Circle, Square } from 'lucide-react'
+import { Circle, Square, Info } from 'lucide-react'
+import { useState } from 'react'
+
+function Tooltip({ text }: { text: string }) {
+    const [show, setShow] = useState(false)
+    return (
+        <div className="relative inline-block">
+            <Info
+                className="w-3 h-3 text-muted-foreground cursor-help ml-1"
+                onMouseEnter={() => setShow(true)}
+                onMouseLeave={() => setShow(false)}
+            />
+            {show && (
+                <div className="absolute z-50 left-4 top-0 w-48 p-2 bg-popover border rounded-md shadow-lg text-xs text-popover-foreground">
+                    {text}
+                </div>
+            )}
+        </div>
+    )
+}
 
 export function SettingsPanel() {
     const {
@@ -17,8 +36,8 @@ export function SettingsPanel() {
     }
 
     return (
-        <div className="w-72 bg-card border-l flex flex-col h-full overflow-hidden">
-            <div className="p-3 border-b bg-muted/50">
+        <div className="md:w-72 bg-card md:border-l flex flex-col h-full overflow-hidden">
+            <div className="hidden md:block p-3 border-b bg-muted/50">
                 <h3 className="font-semibold text-sm">Detection Settings</h3>
             </div>
 
@@ -49,11 +68,14 @@ export function SettingsPanel() {
                 {/* Circle Parameters */}
                 {detectionSettings.mode === 'circle' && (
                     <div className="space-y-3 p-2 bg-muted/30 rounded-md">
-                        <h4 className="text-xs font-medium text-blue-400">Circle Detection</h4>
+                        <h4 className="text-xs font-medium text-blue-400">Circle Detection (Hough Transform)</h4>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Param1 (Edge)</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Param1 (Edge)
+                                    <Tooltip text="Canny edge detection threshold. Higher values detect fewer, stronger edges. Decrease if circles aren't being detected." />
+                                </span>
                                 <span>{detectionSettings.param1}</span>
                             </div>
                             <input
@@ -66,8 +88,11 @@ export function SettingsPanel() {
                         </div>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Param2 (Accum)</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Param2 (Accum)
+                                    <Tooltip text="Circle accumulator threshold. Lower values detect more circles (including false positives). Increase to reduce false detections." />
+                                </span>
                                 <span>{detectionSettings.param2}</span>
                             </div>
                             <input
@@ -80,8 +105,11 @@ export function SettingsPanel() {
                         </div>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Min Radius</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Min Radius
+                                    <Tooltip text="Minimum circle radius in pixels. Set this to exclude small noise detections. Should be smaller than your smallest wells." />
+                                </span>
                                 <span>{detectionSettings.minRadius}px</span>
                             </div>
                             <input
@@ -94,8 +122,11 @@ export function SettingsPanel() {
                         </div>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Max Radius</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Max Radius
+                                    <Tooltip text="Maximum circle radius in pixels. Set this to exclude large false detections. Should be larger than your biggest wells." />
+                                </span>
                                 <span>{detectionSettings.maxRadius}px</span>
                             </div>
                             <input
@@ -108,8 +139,11 @@ export function SettingsPanel() {
                         </div>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Sample Area %</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Sample Area %
+                                    <Tooltip text="Percentage of shape area used for color sampling. Lower values sample only the center, avoiding edge artifacts and reflections." />
+                                </span>
                                 <span>{detectionSettings.restrictedArea}%</span>
                             </div>
                             <input
@@ -126,11 +160,14 @@ export function SettingsPanel() {
                 {/* Rectangle Parameters */}
                 {detectionSettings.mode === 'rectangle' && (
                     <div className="space-y-3 p-2 bg-muted/30 rounded-md">
-                        <h4 className="text-xs font-medium text-green-400">Square Detection</h4>
+                        <h4 className="text-xs font-medium text-green-400">Square Detection (Contour Analysis)</h4>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Min Area</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Min Area
+                                    <Tooltip text="Minimum contour area in pixels². Filters out small noise. Increase if detecting too many small false shapes." />
+                                </span>
                                 <span>{detectionSettings.minArea}px²</span>
                             </div>
                             <input
@@ -143,8 +180,11 @@ export function SettingsPanel() {
                         </div>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Max Area</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Max Area
+                                    <Tooltip text="Maximum contour area in pixels². Filters out large regions. Decrease if detecting the entire image as a shape." />
+                                </span>
                                 <span>{detectionSettings.maxArea}px²</span>
                             </div>
                             <input
@@ -157,8 +197,11 @@ export function SettingsPanel() {
                         </div>
 
                         <div className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span>Epsilon Factor</span>
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Epsilon
+                                    <Tooltip text="Contour approximation accuracy. Lower values keep more detail (jagged squares). Higher values smooth contours (may miss squares)." />
+                                </span>
                                 <span>{detectionSettings.epsilon.toFixed(3)}</span>
                             </div>
                             <input
@@ -166,6 +209,23 @@ export function SettingsPanel() {
                                 min="0.01" max="0.1" step="0.005"
                                 value={detectionSettings.epsilon}
                                 onChange={e => updateSetting('epsilon', parseFloat(e.target.value))}
+                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                            />
+                        </div>
+
+                        <div className="space-y-1">
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Sample Area %
+                                    <Tooltip text="Percentage of shape area used for color sampling. Lower values sample only the center, avoiding edge artifacts." />
+                                </span>
+                                <span>{detectionSettings.restrictedArea}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="10" max="100" step="5"
+                                value={detectionSettings.restrictedArea}
+                                onChange={e => updateSetting('restrictedArea', parseInt(e.target.value))}
                                 className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
                             />
                         </div>
