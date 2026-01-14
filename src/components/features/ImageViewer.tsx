@@ -10,7 +10,7 @@ export function ImageViewer() {
     const {
         images, currentImageIndex, shapes, addShape,
         zoomLevel, setZoomLevel, rotationAngle, setRotationAngle,
-        detectionSettings
+        detectionSettings, selectedShapeId
     } = useApp()
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -83,18 +83,24 @@ export function ImageViewer() {
         const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
 
         currentShapes.forEach(shape => {
-            ctx.lineWidth = 2 / zoomLevel
+            const isSelected = shape.id === selectedShapeId
+            ctx.lineWidth = isSelected ? 4 / zoomLevel : 2 / zoomLevel
 
             if (shape.type === 'rectangle') {
-                // Draw outer rectangle
                 ctx.beginPath()
-                ctx.strokeStyle = '#3b82f6'
-                ctx.fillStyle = 'rgba(59, 130, 246, 0.1)'
+                ctx.strokeStyle = isSelected ? '#f59e0b' : '#3b82f6'
+                ctx.fillStyle = isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.1)'
                 ctx.rect(shape.x, shape.y, shape.width || 0, shape.height || 0)
                 ctx.fill()
                 ctx.stroke()
 
-                // Draw sample area rectangle (inner)
+                if (isSelected) {
+                    ctx.shadowColor = '#f59e0b'
+                    ctx.shadowBlur = 10 / zoomLevel
+                    ctx.stroke()
+                    ctx.shadowBlur = 0
+                }
+
                 const sampleFactor = detectionSettings.restrictedArea / 100
                 const margin = (1 - sampleFactor) / 2
                 const sampleX = shape.x + (shape.width || 0) * margin
@@ -102,35 +108,41 @@ export function ImageViewer() {
                 const sampleW = (shape.width || 0) * sampleFactor
                 const sampleH = (shape.height || 0) * sampleFactor
                 ctx.beginPath()
-                ctx.strokeStyle = 'rgba(59, 130, 246, 0.6)'
+                ctx.strokeStyle = isSelected ? 'rgba(245, 158, 11, 0.6)' : 'rgba(59, 130, 246, 0.6)'
+                ctx.lineWidth = 2 / zoomLevel
                 ctx.setLineDash([3 / zoomLevel, 3 / zoomLevel])
                 ctx.rect(sampleX, sampleY, sampleW, sampleH)
                 ctx.stroke()
                 ctx.setLineDash([])
             } else if (shape.type === 'circle') {
-                // Draw outer circle
                 ctx.beginPath()
-                ctx.strokeStyle = '#22c55e'
-                ctx.fillStyle = 'rgba(34, 197, 94, 0.1)'
+                ctx.strokeStyle = isSelected ? '#f59e0b' : '#22c55e'
+                ctx.fillStyle = isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(34, 197, 94, 0.1)'
                 ctx.arc(shape.x, shape.y, shape.radius || 0, 0, 2 * Math.PI)
                 ctx.fill()
                 ctx.stroke()
 
-                // Draw sample area circle (inner)
+                if (isSelected) {
+                    ctx.shadowColor = '#f59e0b'
+                    ctx.shadowBlur = 10 / zoomLevel
+                    ctx.stroke()
+                    ctx.shadowBlur = 0
+                }
+
                 const sampleRadius = (shape.radius || 0) * (detectionSettings.restrictedArea / 100)
                 ctx.beginPath()
-                ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)'
+                ctx.strokeStyle = isSelected ? 'rgba(245, 158, 11, 0.6)' : 'rgba(34, 197, 94, 0.6)'
+                ctx.lineWidth = 2 / zoomLevel
                 ctx.setLineDash([3 / zoomLevel, 3 / zoomLevel])
                 ctx.arc(shape.x, shape.y, sampleRadius, 0, 2 * Math.PI)
                 ctx.stroke()
                 ctx.setLineDash([])
             }
 
-            // Label
-            ctx.fillStyle = 'white'
+            ctx.fillStyle = isSelected ? '#f59e0b' : 'white'
             ctx.strokeStyle = 'black'
             ctx.lineWidth = 3 / zoomLevel
-            ctx.font = `bold ${14 / zoomLevel}px sans-serif`
+            ctx.font = `bold ${(isSelected ? 16 : 14) / zoomLevel}px sans-serif`
             const labelX = shape.type === 'circle' ? shape.x - 5 / zoomLevel : shape.x
             const labelY = shape.type === 'circle' ? shape.y - (shape.radius || 0) - 5 / zoomLevel : shape.y - 5 / zoomLevel
             ctx.strokeText(shape.label, labelX, labelY)
@@ -154,7 +166,7 @@ export function ImageViewer() {
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId])
 
     useEffect(() => {
         draw()
