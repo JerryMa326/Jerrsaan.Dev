@@ -186,11 +186,11 @@ function App() {
           <>
             {/* Left Sidebar - Image Thumbnails (Hidden on Mobile) */}
             <div className="hidden md:flex w-20 bg-card border-r flex-col shrink-0">
-              <div className="p-2 border-b flex gap-1">
+              <div className="p-2 border-b flex flex-col gap-1">
                 <Button
                   size="sm"
                   variant="outline"
-                  className="flex-1"
+                  className="w-full"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Plus className="h-4 w-4" />
@@ -198,6 +198,7 @@ function App() {
                 <Button
                   size="sm"
                   variant={isGridView ? 'default' : 'ghost'}
+                  className="w-full"
                   onClick={() => setIsGridView(!isGridView)}
                 >
                   <Grid className="h-4 w-4" />
@@ -330,7 +331,7 @@ function App() {
             </div>
 
             {/* Desktop Settings Panel */}
-            {showSettings && <div className="hidden md:block"><SettingsPanel /></div>}
+            {showSettings && <div className="hidden md:flex shrink-0"><SettingsPanel /></div>}
 
             {/* Mobile Slide-up Panels */}
             {mobilePanel !== 'none' && (
@@ -425,6 +426,11 @@ function App() {
           <RegressionStudio />
         )}
       </main>
+
+      {/* Watermark */}
+      <footer className="h-6 flex items-center justify-center bg-card/50 border-t text-[10px] text-muted-foreground shrink-0">
+        Created by Hassaan Vani, Grady Chen, and Jerry Ma
+      </footer>
     </div>
   )
 }
