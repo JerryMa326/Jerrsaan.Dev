@@ -1,10 +1,11 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useApp } from '@/context/AppContext'
 import type { Shape } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
-import { ZoomIn, ZoomOut, Maximize, MousePointer2, Circle, Square, RotateCcw, RotateCw, Crop, X } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize, MousePointer2, Circle, Square, RotateCcw, RotateCw, Crop, X, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { extractColorFromShape } from '@/lib/imageUtils'
+import { isOpenCVReady } from '@/lib/opencvUtils'
 
 export function ImageViewer() {
     const {
@@ -29,8 +30,76 @@ export function ImageViewer() {
     const [spacePressed, setSpacePressed] = useState(false)
     const [lastTouchDist, setLastTouchDist] = useState(0)
     const [isTouchPanning, setIsTouchPanning] = useState(false)
+    const [showPreprocessing, setShowPreprocessing] = useState(true)
 
     const currentImage = images[currentImageIndex]
+
+    // Check if any preprocessing is enabled
+    const hasPreprocessing = detectionSettings.brightness !== 0 ||
+        detectionSettings.contrast !== 1.0 ||
+        detectionSettings.claheEnabled ||
+        detectionSettings.sharpenEnabled
+
+    // Generate preprocessed image when settings change
+    const preprocessedImage = useMemo(() => {
+        if (!currentImage || !hasPreprocessing || !showPreprocessing) return null
+
+        // Create a canvas to hold the preprocessed image
+        const canvas = document.createElement('canvas')
+        canvas.width = currentImage.width
+        canvas.height = currentImage.height
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(currentImage, 0, 0)
+
+        // Apply brightness and contrast using canvas manipulation
+        if (detectionSettings.brightness !== 0 || detectionSettings.contrast !== 1.0) {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            const data = imageData.data
+            const brightness = detectionSettings.brightness
+            const contrast = detectionSettings.contrast
+
+            for (let i = 0; i < data.length; i += 4) {
+                // Apply contrast and brightness: new = contrast * (old - 128) + 128 + brightness
+                data[i] = Math.max(0, Math.min(255, contrast * (data[i] - 128) + 128 + brightness))
+                data[i + 1] = Math.max(0, Math.min(255, contrast * (data[i + 1] - 128) + 128 + brightness))
+                data[i + 2] = Math.max(0, Math.min(255, contrast * (data[i + 2] - 128) + 128 + brightness))
+            }
+            ctx.putImageData(imageData, 0, 0)
+        }
+
+        // Apply CLAHE if enabled and OpenCV is ready
+        if (detectionSettings.claheEnabled && isOpenCVReady()) {
+            try {
+                const cv = (window as any).cv
+                const src = cv.imread(canvas)
+                const gray = new cv.Mat()
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+
+                const clahe = new cv.CLAHE(detectionSettings.claheClipLimit, new cv.Size(8, 8))
+                clahe.apply(gray, gray)
+                clahe.delete()
+
+                // Convert back to color (grayscale to RGB)
+                const dst = new cv.Mat()
+                cv.cvtColor(gray, dst, cv.COLOR_GRAY2RGBA)
+                cv.imshow(canvas, dst)
+
+                src.delete()
+                gray.delete()
+                dst.delete()
+            } catch (e) {
+                console.warn('CLAHE preview failed:', e)
+            }
+        }
+
+        // Create image from canvas
+        const img = new Image()
+        img.src = canvas.toDataURL()
+        return img
+    }, [currentImage, detectionSettings.brightness, detectionSettings.contrast,
+        detectionSettings.claheEnabled, detectionSettings.claheClipLimit,
+        detectionSettings.sharpenEnabled, detectionSettings.sharpenAmount,
+        hasPreprocessing, showPreprocessing])
 
     // Sync drawing mode with detection settings (but not if in crop mode)
     useEffect(() => {
@@ -80,7 +149,9 @@ export function ImageViewer() {
         ctx.scale(zoomLevel, zoomLevel)
         ctx.translate(-currentImage.width / 2 + offset.x / zoomLevel, -currentImage.height / 2 + offset.y / zoomLevel)
 
-        ctx.drawImage(currentImage, 0, 0)
+        // Use preprocessed image if available and loaded, otherwise use original
+        const displayImage = (preprocessedImage && preprocessedImage.complete) ? preprocessedImage : currentImage
+        ctx.drawImage(displayImage, 0, 0)
 
         // Draw ROI bounding box if set
         if (boundingBox) {
@@ -91,7 +162,7 @@ export function ImageViewer() {
             ctx.rect(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height)
             ctx.stroke()
             ctx.setLineDash([])
-            
+
             // Draw semi-transparent overlay outside the ROI
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
             // Top region
@@ -102,7 +173,7 @@ export function ImageViewer() {
             ctx.fillRect(0, boundingBox.y, boundingBox.x, boundingBox.height)
             // Right region
             ctx.fillRect(boundingBox.x + boundingBox.width, boundingBox.y, currentImage.width - boundingBox.x - boundingBox.width, boundingBox.height)
-            
+
             // ROI label
             ctx.fillStyle = '#f97316'
             ctx.font = `bold ${14 / zoomLevel}px sans-serif`
@@ -200,11 +271,18 @@ export function ImageViewer() {
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage])
 
     useEffect(() => {
         draw()
     }, [draw])
+
+    // Redraw when preprocessed image loads
+    useEffect(() => {
+        if (preprocessedImage) {
+            preprocessedImage.onload = () => draw()
+        }
+    }, [preprocessedImage, draw])
 
     useEffect(() => {
         const handleResize = () => {
@@ -262,7 +340,7 @@ export function ImageViewer() {
         setIsDrawing(true)
         const pt = getImagePoint(e)
         setDrawStart(pt)
-        
+
         if (drawingMode === 'crop') {
             setCurrentDraftShape({
                 x: pt.x,
@@ -321,25 +399,25 @@ export function ImageViewer() {
 
             // Validate shape size
             const minSize = 5
-            
+
             // Handle crop mode separately
             if (drawingMode === 'crop') {
                 if (Math.abs(currentDraftShape.width || 0) < minSize || Math.abs(currentDraftShape.height || 0) < minSize) {
                     setCurrentDraftShape(null)
                     return
                 }
-                
+
                 // Normalize coordinates (handle negative width/height from drawing direction)
                 const x = currentDraftShape.width! < 0 ? currentDraftShape.x! + currentDraftShape.width! : currentDraftShape.x!
                 const y = currentDraftShape.height! < 0 ? currentDraftShape.y! + currentDraftShape.height! : currentDraftShape.y!
                 const width = Math.abs(currentDraftShape.width!)
                 const height = Math.abs(currentDraftShape.height!)
-                
+
                 setBoundingBox({ x, y, width, height })
                 setCurrentDraftShape(null)
                 return
             }
-            
+
             if (drawingMode === 'rectangle') {
                 if (Math.abs(currentDraftShape.width || 0) < minSize || Math.abs(currentDraftShape.height || 0) < minSize) {
                     setCurrentDraftShape(null)
@@ -560,6 +638,20 @@ export function ImageViewer() {
                     >
                         <X className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     </Button>
+                )}
+                {hasPreprocessing && (
+                    <>
+                        <div className="w-full h-px bg-muted-foreground/30 my-0.5" />
+                        <Button
+                            size="icon"
+                            variant={showPreprocessing ? 'default' : 'ghost'}
+                            onClick={() => setShowPreprocessing(!showPreprocessing)}
+                            title={showPreprocessing ? "Hide preprocessing preview" : "Show preprocessing preview"}
+                            className="h-7 w-7 md:h-8 md:w-8"
+                        >
+                            {showPreprocessing ? <Eye className="h-3.5 w-3.5 md:h-4 md:w-4" /> : <EyeOff className="h-3.5 w-3.5 md:h-4 md:w-4" />}
+                        </Button>
+                    </>
                 )}
             </div>
 

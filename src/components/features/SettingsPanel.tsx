@@ -1,25 +1,55 @@
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Circle, Square, Info } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 function Tooltip({ text }: { text: string }) {
     const [show, setShow] = useState(false)
+    const [position, setPosition] = useState<'left' | 'right' | 'bottom'>('left')
+    const triggerRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (show && triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect()
+            const viewportWidth = window.innerWidth
+            const tooltipWidth = 200
+
+            // Check if tooltip would go off right edge (most common in this UI)
+            if (rect.right + tooltipWidth + 20 > viewportWidth) {
+                // Check if it would fit on the left
+                if (rect.left - tooltipWidth - 20 > 0) {
+                    setPosition('left')
+                } else {
+                    setPosition('bottom')
+                }
+            } else {
+                setPosition('right')
+            }
+        }
+    }, [show])
+
     return (
-        <div className="relative inline-block">
+        <div className="relative inline-block" ref={triggerRef}>
             <Info
                 className="w-3 h-3 text-muted-foreground cursor-help ml-1"
                 onMouseEnter={() => setShow(true)}
                 onMouseLeave={() => setShow(false)}
             />
             {show && (
-                <div className="absolute z-50 left-4 top-0 w-48 p-2 bg-popover border rounded-md shadow-lg text-xs text-popover-foreground">
+                <div
+                    className={`absolute z-[100] w-48 p-2 bg-popover border rounded-md shadow-lg text-xs text-popover-foreground
+                        ${position === 'right' ? 'left-5 top-0' : ''}
+                        ${position === 'left' ? 'right-5 top-0' : ''}
+                        ${position === 'bottom' ? 'left-1/2 -translate-x-1/2 top-5' : ''}
+                    `}
+                >
                     {text}
                 </div>
             )}
         </div>
     )
 }
+
 
 export function SettingsPanel() {
     const {
@@ -233,8 +263,8 @@ export function SettingsPanel() {
                 )}
 
                 {/* Image Preprocessing Settings */}
-                <div className="space-y-3 p-2 bg-orange-500/10 rounded-md border border-orange-500/30">
-                    <h4 className="text-xs font-medium text-orange-400">Image Preprocessing</h4>
+                <div className="space-y-3 p-2 bg-violet-500/10 rounded-md border border-violet-500/30">
+                    <h4 className="text-xs font-medium text-violet-400">Image Preprocessing</h4>
                     <p className="text-[10px] text-muted-foreground">
                         Enhance image before detection. Useful for poor lighting or low contrast.
                     </p>
@@ -298,14 +328,14 @@ export function SettingsPanel() {
                         </span>
                         <button
                             onClick={() => setDetectionSettings(prev => ({ ...prev, claheEnabled: !prev.claheEnabled }))}
-                            className={`w-10 h-5 rounded-full transition-colors ${detectionSettings.claheEnabled ? 'bg-orange-500' : 'bg-muted'}`}
+                            className={`w-10 h-5 rounded-full transition-colors ${detectionSettings.claheEnabled ? 'bg-violet-500' : 'bg-muted'}`}
                         >
                             <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${detectionSettings.claheEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
                         </button>
                     </div>
 
                     {detectionSettings.claheEnabled && (
-                        <div className="space-y-1 pl-2 border-l-2 border-orange-500/30">
+                        <div className="space-y-1 pl-2 border-l-2 border-violet-500/30">
                             <div className="flex justify-between text-xs items-center">
                                 <span className="flex items-center">
                                     Clip Limit
@@ -331,14 +361,14 @@ export function SettingsPanel() {
                         </span>
                         <button
                             onClick={() => setDetectionSettings(prev => ({ ...prev, sharpenEnabled: !prev.sharpenEnabled }))}
-                            className={`w-10 h-5 rounded-full transition-colors ${detectionSettings.sharpenEnabled ? 'bg-orange-500' : 'bg-muted'}`}
+                            className={`w-10 h-5 rounded-full transition-colors ${detectionSettings.sharpenEnabled ? 'bg-violet-500' : 'bg-muted'}`}
                         >
                             <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${detectionSettings.sharpenEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
                         </button>
                     </div>
 
                     {detectionSettings.sharpenEnabled && (
-                        <div className="space-y-1 pl-2 border-l-2 border-orange-500/30">
+                        <div className="space-y-1 pl-2 border-l-2 border-violet-500/30">
                             <div className="flex justify-between text-xs items-center">
                                 <span className="flex items-center">
                                     Amount
