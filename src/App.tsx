@@ -105,7 +105,7 @@ function App() {
           <h1 className="text-xs md:text-sm font-semibold tracking-tight">
             <span className="hidden sm:inline">ChemClub Analyst</span>
             <span className="sm:hidden">ChemClub</span>
-            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v3.0</span>
+            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v3.1</span>
           </h1>
         </div>
 
