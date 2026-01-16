@@ -241,7 +241,7 @@ function App() {
             </div>
 
             {/* Main Canvas Area */}
-            <div className="flex-1 flex flex-col relative bg-neutral-900">
+            <div className="flex-1 min-w-0 flex flex-col relative bg-neutral-900 overflow-hidden">
               {/* Toolbar - Responsive */}
               <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm px-1.5 md:px-2 py-1 rounded-lg">
                 <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0}>
