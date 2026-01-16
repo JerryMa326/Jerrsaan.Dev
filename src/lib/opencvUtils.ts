@@ -20,6 +20,38 @@ export async function waitForOpenCV(timeout = 10000): Promise<boolean> {
     return false
 }
 
+/**
+ * Apply preprocessing to an image before detection
+ * This can dramatically improve detection on images with poor lighting or low contrast
+ */
+function preprocessImage(mat: any, settings: DetectionSettings): void {
+    const cv = window.cv
+
+    // Apply brightness and contrast adjustment
+    // newPixel = contrast * oldPixel + brightness
+    if (settings.brightness !== 0 || settings.contrast !== 1.0) {
+        mat.convertTo(mat, -1, settings.contrast, settings.brightness)
+    }
+
+    // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    // This is excellent for images with uneven lighting
+    if (settings.claheEnabled) {
+        const clahe = new cv.CLAHE(settings.claheClipLimit, new cv.Size(8, 8))
+        clahe.apply(mat, mat)
+        clahe.delete()
+    }
+
+    // Apply sharpening using unsharp mask technique
+    if (settings.sharpenEnabled && settings.sharpenAmount > 0) {
+        const blurred = new cv.Mat()
+        cv.GaussianBlur(mat, blurred, new cv.Size(0, 0), 3)
+        // sharpened = original * (1 + amount) - blurred * amount
+        cv.addWeighted(mat, 1.0 + settings.sharpenAmount, blurred, -settings.sharpenAmount, 0, mat)
+        blurred.delete()
+    }
+}
+
+
 export function autoDetectCircles(
     image: HTMLImageElement,
     settings: DetectionSettings,
@@ -66,8 +98,12 @@ export function autoDetectCircles(
         // Convert to grayscale
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
 
-        // Apply Gaussian blur to reduce noise
-        cv.GaussianBlur(gray, gray, new cv.Size(9, 9), 2, 2)
+        // Apply preprocessing (brightness, contrast, CLAHE, sharpening)
+        preprocessImage(gray, settings)
+
+        // Apply Gaussian blur to reduce noise (configurable kernel size)
+        const kernelSize = settings.blurKernelSize || 9
+        cv.GaussianBlur(gray, gray, new cv.Size(kernelSize, kernelSize), 2, 2)
 
         // Detect circles using Hough Transform
         cv.HoughCircles(
@@ -173,7 +209,12 @@ export function autoDetectRectangles(
 
     try {
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
-        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
+
+        // Apply preprocessing (brightness, contrast, CLAHE, sharpening)
+        preprocessImage(gray, settings)
+
+        const kernelSize = Math.min(settings.blurKernelSize || 5, 7) // smaller blur for edge detection
+        cv.GaussianBlur(gray, blurred, new cv.Size(kernelSize, kernelSize), 0)
         cv.Canny(blurred, edges, 50, 150)
 
         cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)

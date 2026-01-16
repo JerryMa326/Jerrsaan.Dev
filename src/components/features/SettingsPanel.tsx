@@ -31,7 +31,7 @@ export function SettingsPanel() {
         setRawRgbMode
     } = useApp()
 
-    const updateSetting = (key: keyof typeof detectionSettings, value: number | 'circle' | 'rectangle') => {
+    const updateSetting = (key: keyof typeof detectionSettings, value: number | boolean | 'circle' | 'rectangle') => {
         setDetectionSettings(prev => ({ ...prev, [key]: value }))
     }
 
@@ -232,6 +232,130 @@ export function SettingsPanel() {
                     </div>
                 )}
 
+                {/* Image Preprocessing Settings */}
+                <div className="space-y-3 p-2 bg-orange-500/10 rounded-md border border-orange-500/30">
+                    <h4 className="text-xs font-medium text-orange-400">Image Preprocessing</h4>
+                    <p className="text-[10px] text-muted-foreground">
+                        Enhance image before detection. Useful for poor lighting or low contrast.
+                    </p>
+
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs items-center">
+                            <span className="flex items-center">
+                                Brightness
+                                <Tooltip text="Adjust overall image brightness. Increase for dark images, decrease for overexposed images." />
+                            </span>
+                            <span>{detectionSettings.brightness}</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="-100" max="100" step="5"
+                            value={detectionSettings.brightness}
+                            onChange={e => updateSetting('brightness', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs items-center">
+                            <span className="flex items-center">
+                                Contrast
+                                <Tooltip text="Adjust image contrast. Higher values increase the difference between light and dark areas." />
+                            </span>
+                            <span>{detectionSettings.contrast.toFixed(1)}x</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="0.5" max="3.0" step="0.1"
+                            value={detectionSettings.contrast}
+                            onChange={e => updateSetting('contrast', parseFloat(e.target.value))}
+                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs items-center">
+                            <span className="flex items-center">
+                                Blur Kernel
+                                <Tooltip text="Size of the Gaussian blur applied before detection. Larger values reduce noise but may blur edges." />
+                            </span>
+                            <span>{detectionSettings.blurKernelSize}px</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="3" max="15" step="2"
+                            value={detectionSettings.blurKernelSize}
+                            onChange={e => updateSetting('blurKernelSize', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+
+                    {/* CLAHE Toggle */}
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs flex items-center">
+                            CLAHE (Adaptive Contrast)
+                            <Tooltip text="Contrast Limited Adaptive Histogram Equalization. Excellent for images with uneven lighting. Commonly used in medical imaging." />
+                        </span>
+                        <button
+                            onClick={() => setDetectionSettings(prev => ({ ...prev, claheEnabled: !prev.claheEnabled }))}
+                            className={`w-10 h-5 rounded-full transition-colors ${detectionSettings.claheEnabled ? 'bg-orange-500' : 'bg-muted'}`}
+                        >
+                            <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${detectionSettings.claheEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                    </div>
+
+                    {detectionSettings.claheEnabled && (
+                        <div className="space-y-1 pl-2 border-l-2 border-orange-500/30">
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Clip Limit
+                                    <Tooltip text="Controls contrast amplification. Higher values increase local contrast but may amplify noise." />
+                                </span>
+                                <span>{detectionSettings.claheClipLimit.toFixed(1)}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="1.0" max="8.0" step="0.5"
+                                value={detectionSettings.claheClipLimit}
+                                onChange={e => updateSetting('claheClipLimit', parseFloat(e.target.value))}
+                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                            />
+                        </div>
+                    )}
+
+                    {/* Sharpening Toggle */}
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs flex items-center">
+                            Sharpening
+                            <Tooltip text="Enhances edges using unsharp mask technique. Helps detect blurry or soft circles." />
+                        </span>
+                        <button
+                            onClick={() => setDetectionSettings(prev => ({ ...prev, sharpenEnabled: !prev.sharpenEnabled }))}
+                            className={`w-10 h-5 rounded-full transition-colors ${detectionSettings.sharpenEnabled ? 'bg-orange-500' : 'bg-muted'}`}
+                        >
+                            <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${detectionSettings.sharpenEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                    </div>
+
+                    {detectionSettings.sharpenEnabled && (
+                        <div className="space-y-1 pl-2 border-l-2 border-orange-500/30">
+                            <div className="flex justify-between text-xs items-center">
+                                <span className="flex items-center">
+                                    Amount
+                                    <Tooltip text="Sharpening strength. Higher values create more pronounced edges but may introduce artifacts." />
+                                </span>
+                                <span>{detectionSettings.sharpenAmount.toFixed(1)}x</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.5" max="3.0" step="0.1"
+                                value={detectionSettings.sharpenAmount}
+                                onChange={e => updateSetting('sharpenAmount', parseFloat(e.target.value))}
+                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                            />
+                        </div>
+                    )}
+                </div>
                 <div className="border-t pt-3 space-y-2">
                     <label className="text-xs font-medium text-muted-foreground">Color Mode</label>
                     <div className="flex gap-2">
