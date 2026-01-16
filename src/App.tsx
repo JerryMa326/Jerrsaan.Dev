@@ -15,7 +15,7 @@ import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/op
 
 function App() {
   const [activeTab, setActiveTab] = useState<'detect' | 'analyze'>('detect')
-  const [showSettings, setShowSettings] = useState(false)
+  const [showSettings, setShowSettings] = useState(true) // Default to open for better UX
   const [rightPanel, setRightPanel] = useState<'shapes' | 'colors'>('shapes')
   const [isDetecting, setIsDetecting] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'none' | 'images' | 'info' | 'settings'>('none')
@@ -99,7 +99,7 @@ function App() {
   return (
     <div className="flex h-screen w-full flex-col bg-background text-foreground overflow-hidden">
       {/* Header - Mobile Responsive */}
-      <header className="flex h-12 md:h-12 items-center justify-between border-b bg-card px-2 md:px-4 shrink-0 z-20">
+      <header className="flex h-12 md:h-12 items-center justify-between border-b bg-card px-2 md:px-4 shrink-0 z-50">
         <div className="flex items-center gap-2">
           <img src="/favicon-removebg-preview.png" alt="ChemClub" className="h-5 w-5 md:h-6 md:w-6" />
           <h1 className="text-xs md:text-sm font-semibold tracking-tight">
@@ -164,9 +164,9 @@ function App() {
           />
           {/* Desktop Settings */}
           <Button
-            variant="ghost"
+            variant={showSettings ? 'default' : 'ghost'}
             size="icon"
-            className="hidden md:flex h-8 w-8"
+            className="hidden md:flex h-8 w-8 relative z-30"
             onClick={() => setShowSettings(!showSettings)}
           >
             <Settings className="h-4 w-4" />
