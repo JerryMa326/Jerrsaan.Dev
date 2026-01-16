@@ -24,7 +24,8 @@ export function autoDetectCircles(
     image: HTMLImageElement,
     settings: DetectionSettings,
     imageIndex: number,
-    existingLabels: Set<string>
+    existingLabels: Set<string>,
+    boundingBox?: { x: number; y: number; width: number; height: number } | null
 ): Shape[] {
     if (!isOpenCVReady()) {
         throw new Error('OpenCV is not loaded')
@@ -35,10 +36,26 @@ export function autoDetectCircles(
 
     // Create canvas from image
     const canvas = document.createElement('canvas')
-    canvas.width = image.width
-    canvas.height = image.height
     const ctx = canvas.getContext('2d')!
-    ctx.drawImage(image, 0, 0)
+
+    // If boundingBox is defined, only process that region
+    let offsetX = 0
+    let offsetY = 0
+    if (boundingBox) {
+        canvas.width = boundingBox.width
+        canvas.height = boundingBox.height
+        ctx.drawImage(
+            image,
+            boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height,
+            0, 0, boundingBox.width, boundingBox.height
+        )
+        offsetX = boundingBox.x
+        offsetY = boundingBox.y
+    } else {
+        canvas.width = image.width
+        canvas.height = image.height
+        ctx.drawImage(image, 0, 0)
+    }
 
     // Read image into OpenCV
     const src = cv.imread(canvas)
@@ -58,7 +75,7 @@ export function autoDetectCircles(
             circles,
             cv.HOUGH_GRADIENT,
             1, // dp
-            Math.min(image.width, image.height) / 8, // minDist between circles
+            Math.min(canvas.width, canvas.height) / 8, // minDist between circles
             settings.param1, // Canny edge threshold
             settings.param2, // Accumulator threshold
             settings.minRadius,
@@ -70,9 +87,13 @@ export function autoDetectCircles(
         let labelIndex = 0
 
         for (let i = 0; i < circles.cols; i++) {
-            const x = circles.data32F[i * 3]
-            const y = circles.data32F[i * 3 + 1]
+            const localX = circles.data32F[i * 3]
+            const localY = circles.data32F[i * 3 + 1]
             const radius = circles.data32F[i * 3 + 2]
+
+            // Convert local coordinates back to image coordinates
+            const x = localX + offsetX
+            const y = localY + offsetY
 
             // Get next available label
             while (labelIndex < labels.length && existingLabels.has(labels[labelIndex])) {
@@ -82,9 +103,9 @@ export function autoDetectCircles(
             existingLabels.add(label)
             labelIndex++
 
-            // Extract color from the center region
+            // Extract color from the center region (use local coordinates for the cropped canvas)
             const sampleRadius = Math.max(1, Math.floor(radius * settings.restrictedArea / 100))
-            const color = extractAverageColor(ctx, x, y, sampleRadius)
+            const color = extractAverageColor(ctx, localX, localY, sampleRadius)
 
             shapes.push({
                 id: uuidv4(),
@@ -111,7 +132,8 @@ export function autoDetectRectangles(
     image: HTMLImageElement,
     settings: DetectionSettings,
     imageIndex: number,
-    existingLabels: Set<string>
+    existingLabels: Set<string>,
+    boundingBox?: { x: number; y: number; width: number; height: number } | null
 ): Shape[] {
     if (!isOpenCVReady()) {
         throw new Error('OpenCV is not loaded')
@@ -121,10 +143,26 @@ export function autoDetectRectangles(
     const shapes: Shape[] = []
 
     const canvas = document.createElement('canvas')
-    canvas.width = image.width
-    canvas.height = image.height
     const ctx = canvas.getContext('2d')!
-    ctx.drawImage(image, 0, 0)
+
+    // If boundingBox is defined, only process that region
+    let offsetX = 0
+    let offsetY = 0
+    if (boundingBox) {
+        canvas.width = boundingBox.width
+        canvas.height = boundingBox.height
+        ctx.drawImage(
+            image,
+            boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height,
+            0, 0, boundingBox.width, boundingBox.height
+        )
+        offsetX = boundingBox.x
+        offsetY = boundingBox.y
+    } else {
+        canvas.width = image.width
+        canvas.height = image.height
+        ctx.drawImage(image, 0, 0)
+    }
 
     const src = cv.imread(canvas)
     const gray = new cv.Mat()
@@ -157,6 +195,10 @@ export function autoDetectRectangles(
             if (approx.rows === 4) {
                 const rect = cv.boundingRect(approx)
 
+                // Convert local coordinates to image coordinates
+                const globalX = rect.x + offsetX
+                const globalY = rect.y + offsetY
+
                 // Check aspect ratio is roughly square-ish
                 const aspectRatio = rect.width / rect.height
                 if (aspectRatio > 0.5 && aspectRatio < 2.0) {
@@ -167,14 +209,15 @@ export function autoDetectRectangles(
                     existingLabels.add(label)
                     labelIndex++
 
+                    // Use local coordinates for color extraction from cropped canvas
                     const color = extractAverageColorRect(ctx, rect.x, rect.y, rect.width, rect.height, settings.restrictedArea)
 
                     shapes.push({
                         id: uuidv4(),
                         label,
                         type: 'rectangle',
-                        x: rect.x,
-                        y: rect.y,
+                        x: globalX,
+                        y: globalY,
                         width: rect.width,
                         height: rect.height,
                         color,

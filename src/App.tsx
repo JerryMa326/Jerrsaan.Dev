@@ -22,7 +22,7 @@ function App() {
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
     removeImage, clearShapesForImage, isGridView, setIsGridView,
-    shapes, setShapes, detectionSettings
+    shapes, setShapes, detectionSettings, boundingBox
   } = useApp()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -57,30 +57,33 @@ function App() {
 
     setIsDetecting(true)
 
-    try {
-      const existingLabels = new Set(shapes.filter(s => s.imageIndex !== currentImageIndex).map(s => s.label))
+    // Use setTimeout to allow the UI to update (show spinner) before heavy computation
+    setTimeout(() => {
+      try {
+        const existingLabels = new Set(shapes.filter(s => s.imageIndex !== currentImageIndex).map(s => s.label))
 
-      let newShapes
-      if (detectionSettings.mode === 'circle') {
-        newShapes = autoDetectCircles(currentImage, detectionSettings, currentImageIndex, existingLabels)
-      } else {
-        newShapes = autoDetectRectangles(currentImage, detectionSettings, currentImageIndex, existingLabels)
-      }
+        let newShapes
+        if (detectionSettings.mode === 'circle') {
+          newShapes = autoDetectCircles(currentImage, detectionSettings, currentImageIndex, existingLabels, boundingBox)
+        } else {
+          newShapes = autoDetectRectangles(currentImage, detectionSettings, currentImageIndex, existingLabels, boundingBox)
+        }
 
-      if (newShapes.length === 0) {
-        alert('No shapes detected. Try adjusting the detection parameters.')
-      } else {
-        setShapes(prev => [
-          ...prev.filter(s => s.imageIndex !== currentImageIndex),
-          ...newShapes
-        ])
+        if (newShapes.length === 0) {
+          alert('No shapes detected. Try adjusting the detection parameters.')
+        } else {
+          setShapes(prev => [
+            ...prev.filter(s => s.imageIndex !== currentImageIndex),
+            ...newShapes
+          ])
+        }
+      } catch (error) {
+        console.error('Detection error:', error)
+        alert(`Detection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      } finally {
+        setIsDetecting(false)
       }
-    } catch (error) {
-      console.error('Detection error:', error)
-      alert(`Detection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setIsDetecting(false)
-    }
+    }, 50)
   }
 
   const handlePrevImage = () => {

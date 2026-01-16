@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { useApp } from '@/context/AppContext'
 import type { Shape } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
-import { ZoomIn, ZoomOut, Maximize, MousePointer2, Circle, Square, RotateCcw, RotateCw } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize, MousePointer2, Circle, Square, RotateCcw, RotateCw, Crop, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { extractColorFromShape } from '@/lib/imageUtils'
 
@@ -10,7 +10,8 @@ export function ImageViewer() {
     const {
         images, currentImageIndex, shapes, addShape,
         zoomLevel, setZoomLevel, rotationAngle, setRotationAngle,
-        detectionSettings, selectedShapeId
+        detectionSettings, selectedShapeId,
+        boundingBox, setBoundingBox
     } = useApp()
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -19,7 +20,7 @@ export function ImageViewer() {
     const [isDragging, setIsDragging] = useState(false)
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
-    const [drawingMode, setDrawingMode] = useState<'none' | 'rectangle' | 'circle'>(
+    const [drawingMode, setDrawingMode] = useState<'none' | 'rectangle' | 'circle' | 'crop'>(
         detectionSettings.mode
     )
     const [isDrawing, setIsDrawing] = useState(false)
@@ -31,10 +32,12 @@ export function ImageViewer() {
 
     const currentImage = images[currentImageIndex]
 
-    // Sync drawing mode with detection settings
+    // Sync drawing mode with detection settings (but not if in crop mode)
     useEffect(() => {
-        setDrawingMode(detectionSettings.mode === 'circle' ? 'circle' : 'rectangle')
-    }, [detectionSettings.mode])
+        if (drawingMode !== 'crop') {
+            setDrawingMode(detectionSettings.mode === 'circle' ? 'circle' : 'rectangle')
+        }
+    }, [detectionSettings.mode, drawingMode])
 
     // Reset view when image changes
     useEffect(() => {
@@ -78,6 +81,33 @@ export function ImageViewer() {
         ctx.translate(-currentImage.width / 2 + offset.x / zoomLevel, -currentImage.height / 2 + offset.y / zoomLevel)
 
         ctx.drawImage(currentImage, 0, 0)
+
+        // Draw ROI bounding box if set
+        if (boundingBox) {
+            ctx.beginPath()
+            ctx.strokeStyle = '#f97316'
+            ctx.lineWidth = 3 / zoomLevel
+            ctx.setLineDash([8 / zoomLevel, 4 / zoomLevel])
+            ctx.rect(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height)
+            ctx.stroke()
+            ctx.setLineDash([])
+            
+            // Draw semi-transparent overlay outside the ROI
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
+            // Top region
+            ctx.fillRect(0, 0, currentImage.width, boundingBox.y)
+            // Bottom region
+            ctx.fillRect(0, boundingBox.y + boundingBox.height, currentImage.width, currentImage.height - boundingBox.y - boundingBox.height)
+            // Left region
+            ctx.fillRect(0, boundingBox.y, boundingBox.x, boundingBox.height)
+            // Right region
+            ctx.fillRect(boundingBox.x + boundingBox.width, boundingBox.y, currentImage.width - boundingBox.x - boundingBox.width, boundingBox.height)
+            
+            // ROI label
+            ctx.fillStyle = '#f97316'
+            ctx.font = `bold ${14 / zoomLevel}px sans-serif`
+            ctx.fillText('ROI', boundingBox.x + 4 / zoomLevel, boundingBox.y + 16 / zoomLevel)
+        }
 
         // Draw shapes
         const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
@@ -160,13 +190,17 @@ export function ImageViewer() {
             } else if (drawingMode === 'circle') {
                 ctx.strokeStyle = '#22c55e'
                 ctx.arc(currentDraftShape.x!, currentDraftShape.y!, currentDraftShape.radius!, 0, 2 * Math.PI)
+            } else if (drawingMode === 'crop') {
+                ctx.strokeStyle = '#f97316'
+                ctx.lineWidth = 3 / zoomLevel
+                ctx.rect(currentDraftShape.x!, currentDraftShape.y!, currentDraftShape.width!, currentDraftShape.height!)
             }
             ctx.stroke()
             ctx.setLineDash([])
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox])
 
     useEffect(() => {
         draw()
@@ -228,13 +262,23 @@ export function ImageViewer() {
         setIsDrawing(true)
         const pt = getImagePoint(e)
         setDrawStart(pt)
-        setCurrentDraftShape({
-            x: pt.x,
-            y: pt.y,
-            width: 0,
-            height: 0,
-            radius: 0
-        })
+        
+        if (drawingMode === 'crop') {
+            setCurrentDraftShape({
+                x: pt.x,
+                y: pt.y,
+                width: 0,
+                height: 0
+            })
+        } else {
+            setCurrentDraftShape({
+                x: pt.x,
+                y: pt.y,
+                width: 0,
+                height: 0,
+                radius: 0
+            })
+        }
     }
 
     const handleMouseMove = (e: React.MouseEvent) => {
@@ -248,7 +292,7 @@ export function ImageViewer() {
 
         if (isDrawing && currentDraftShape) {
             const pt = getImagePoint(e)
-            if (drawingMode === 'rectangle') {
+            if (drawingMode === 'rectangle' || drawingMode === 'crop') {
                 setCurrentDraftShape({
                     ...currentDraftShape,
                     width: pt.x - drawStart.x,
@@ -277,6 +321,25 @@ export function ImageViewer() {
 
             // Validate shape size
             const minSize = 5
+            
+            // Handle crop mode separately
+            if (drawingMode === 'crop') {
+                if (Math.abs(currentDraftShape.width || 0) < minSize || Math.abs(currentDraftShape.height || 0) < minSize) {
+                    setCurrentDraftShape(null)
+                    return
+                }
+                
+                // Normalize coordinates (handle negative width/height from drawing direction)
+                const x = currentDraftShape.width! < 0 ? currentDraftShape.x! + currentDraftShape.width! : currentDraftShape.x!
+                const y = currentDraftShape.height! < 0 ? currentDraftShape.y! + currentDraftShape.height! : currentDraftShape.y!
+                const width = Math.abs(currentDraftShape.width!)
+                const height = Math.abs(currentDraftShape.height!)
+                
+                setBoundingBox({ x, y, width, height })
+                setCurrentDraftShape(null)
+                return
+            }
+            
             if (drawingMode === 'rectangle') {
                 if (Math.abs(currentDraftShape.width || 0) < minSize || Math.abs(currentDraftShape.height || 0) < minSize) {
                     setCurrentDraftShape(null)
@@ -477,6 +540,27 @@ export function ImageViewer() {
                 >
                     <Circle className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 </Button>
+                <div className="w-full h-px bg-muted-foreground/30 my-0.5" />
+                <Button
+                    size="icon"
+                    variant={drawingMode === 'crop' ? 'default' : 'ghost'}
+                    onClick={() => setDrawingMode('crop')}
+                    title="Select Region of Interest"
+                    className="h-7 w-7 md:h-8 md:w-8"
+                >
+                    <Crop className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                </Button>
+                {boundingBox && (
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setBoundingBox(null)}
+                        title="Clear ROI"
+                        className="h-7 w-7 md:h-8 md:w-8 text-orange-500 hover:text-orange-400"
+                    >
+                        <X className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    </Button>
+                )}
             </div>
 
             {/* Zoom/Rotation Controls - Responsive */}
