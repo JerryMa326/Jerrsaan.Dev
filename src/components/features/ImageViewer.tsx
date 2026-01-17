@@ -11,8 +11,9 @@ export function ImageViewer() {
     const {
         images, currentImageIndex, shapes, addShape,
         zoomLevel, setZoomLevel, rotationAngle, setRotationAngle,
-        detectionSettings, selectedShapeId,
-        boundingBox, setBoundingBox
+        detectionSettings, setDetectionSettings, selectedShapeId,
+        boundingBox, setBoundingBox,
+        calibrationMode, setCalibrationMode
     } = useApp()
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -101,12 +102,18 @@ export function ImageViewer() {
         detectionSettings.sharpenEnabled, detectionSettings.sharpenAmount,
         hasPreprocessing, showPreprocessing])
 
-    // Sync drawing mode with detection settings (but not if in crop mode)
+    // Sync drawing mode with detection settings only when detection mode changes
+    // This should NOT run when user manually changes drawing mode or during calibration
+    const [lastDetectionMode, setLastDetectionMode] = useState(detectionSettings.mode)
     useEffect(() => {
-        if (drawingMode !== 'crop') {
-            setDrawingMode(detectionSettings.mode === 'circle' ? 'circle' : 'rectangle')
+        if (detectionSettings.mode !== lastDetectionMode) {
+            setLastDetectionMode(detectionSettings.mode)
+            // Only sync if we're not in a special mode (none/crop) or during calibration
+            if (drawingMode !== 'none' && drawingMode !== 'crop' && calibrationMode === 'none') {
+                setDrawingMode(detectionSettings.mode === 'circle' ? 'circle' : 'rectangle')
+            }
         }
-    }, [detectionSettings.mode, drawingMode])
+    }, [detectionSettings.mode, lastDetectionMode, drawingMode, calibrationMode])
 
     // Reset view when image changes
     useEffect(() => {
@@ -255,7 +262,17 @@ export function ImageViewer() {
             ctx.beginPath()
             ctx.lineWidth = 2 / zoomLevel
             ctx.setLineDash([5 / zoomLevel, 5 / zoomLevel])
-            if (drawingMode === 'rectangle') {
+
+            // Check if we're in calibration mode (from context)
+            if (calibrationMode === 'min') {
+                ctx.strokeStyle = '#06b6d4' // cyan for min calibration
+                ctx.lineWidth = 3 / zoomLevel
+                ctx.arc(currentDraftShape.x!, currentDraftShape.y!, currentDraftShape.radius || 0, 0, 2 * Math.PI)
+            } else if (calibrationMode === 'max') {
+                ctx.strokeStyle = '#d946ef' // magenta for max calibration
+                ctx.lineWidth = 3 / zoomLevel
+                ctx.arc(currentDraftShape.x!, currentDraftShape.y!, currentDraftShape.radius || 0, 0, 2 * Math.PI)
+            } else if (drawingMode === 'rectangle') {
                 ctx.strokeStyle = '#3b82f6'
                 ctx.rect(currentDraftShape.x!, currentDraftShape.y!, currentDraftShape.width!, currentDraftShape.height!)
             } else if (drawingMode === 'circle') {
@@ -271,7 +288,7 @@ export function ImageViewer() {
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage, calibrationMode])
 
     useEffect(() => {
         draw()
@@ -370,7 +387,16 @@ export function ImageViewer() {
 
         if (isDrawing && currentDraftShape) {
             const pt = getImagePoint(e)
-            if (drawingMode === 'rectangle' || drawingMode === 'crop') {
+            // During calibration mode, always track circle
+            if (calibrationMode !== 'none') {
+                const dx = pt.x - drawStart.x
+                const dy = pt.y - drawStart.y
+                const radius = Math.sqrt(dx * dx + dy * dy)
+                setCurrentDraftShape({
+                    ...currentDraftShape,
+                    radius
+                })
+            } else if (drawingMode === 'rectangle' || drawingMode === 'crop') {
                 setCurrentDraftShape({
                     ...currentDraftShape,
                     width: pt.x - drawStart.x,
@@ -414,6 +440,28 @@ export function ImageViewer() {
                 const height = Math.abs(currentDraftShape.height!)
 
                 setBoundingBox({ x, y, width, height })
+                setCurrentDraftShape(null)
+                return
+            }
+
+            // Handle calibration modes (from context)
+            if (calibrationMode !== 'none') {
+                const radius = currentDraftShape.radius || 0
+                if (radius < 3) {
+                    setCurrentDraftShape(null)
+                    return
+                }
+
+                const calibratedRadius = Math.round(radius)
+
+                if (calibrationMode === 'min') {
+                    setDetectionSettings(prev => ({ ...prev, minRadius: calibratedRadius }))
+                } else if (calibrationMode === 'max') {
+                    setDetectionSettings(prev => ({ ...prev, maxRadius: calibratedRadius }))
+                }
+
+                // Reset calibration mode after setting
+                setCalibrationMode('none')
                 setCurrentDraftShape(null)
                 return
             }

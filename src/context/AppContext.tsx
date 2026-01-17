@@ -23,6 +23,8 @@ interface AppContextType extends AppState {
     setBoundingBox: (box: { x: number; y: number; width: number; height: number } | null) => void
     selectedShapeId: string | null
     setSelectedShapeId: (id: string | null) => void
+    calibrationMode: 'none' | 'min' | 'max'
+    setCalibrationMode: (mode: 'none' | 'min' | 'max') => void
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -44,6 +46,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [rotationAngle, setRotationAngle] = useState(0)
     const [boundingBox, setBoundingBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
     const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
+    const [calibrationMode, setCalibrationMode] = useState<'none' | 'min' | 'max'>('none')
 
     const addShape = useCallback((shape: Shape) => {
         setShapes(prev => [...prev, shape])
@@ -90,7 +93,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             zoomLevel, setZoomLevel,
             rotationAngle, setRotationAngle,
             boundingBox, setBoundingBox,
-            selectedShapeId, setSelectedShapeId
+            selectedShapeId, setSelectedShapeId,
+            calibrationMode, setCalibrationMode
         }}>
             {children}
         </AppContext.Provider>

@@ -1,6 +1,6 @@
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
-import { Circle, Square, Info } from 'lucide-react'
+import { Circle, Square, Info, Crosshair } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
 function Tooltip({ text }: { text: string }) {
@@ -58,7 +58,10 @@ export function SettingsPanel() {
         colorMode,
         setColorMode,
         rawRgbMode,
-        setRawRgbMode
+        setRawRgbMode,
+        calibrationMode,
+        setCalibrationMode,
+        images
     } = useApp()
 
     const updateSetting = (key: keyof typeof detectionSettings, value: number | boolean | 'circle' | 'rectangle') => {
@@ -140,7 +143,17 @@ export function SettingsPanel() {
                                     Min Radius
                                     <Tooltip text="Minimum circle radius in pixels. Set this to exclude small noise detections. Should be smaller than your smallest wells." />
                                 </span>
-                                <span>{detectionSettings.minRadius}px</span>
+                                <div className="flex items-center gap-1">
+                                    <span>{detectionSettings.minRadius}px</span>
+                                    <button
+                                        onClick={() => setCalibrationMode('min')}
+                                        disabled={images.length === 0}
+                                        title="Draw a circle on the image to set min radius"
+                                        className={`p-1 rounded hover:bg-muted transition-colors ${calibrationMode === 'min' ? 'bg-cyan-500/20 text-cyan-400' : 'text-muted-foreground'} ${images.length === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                    >
+                                        <Crosshair className="h-3 w-3" />
+                                    </button>
+                                </div>
                             </div>
                             <input
                                 type="range"
@@ -149,6 +162,11 @@ export function SettingsPanel() {
                                 onChange={e => updateSetting('minRadius', parseInt(e.target.value))}
                                 className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
                             />
+                            {calibrationMode === 'min' && (
+                                <div className="text-[10px] text-cyan-400 bg-cyan-500/10 p-1.5 rounded">
+                                    ⟲ Draw a circle around the <strong>smallest</strong> well you want to detect
+                                </div>
+                            )}
                         </div>
 
                         <div className="space-y-1">
@@ -157,7 +175,17 @@ export function SettingsPanel() {
                                     Max Radius
                                     <Tooltip text="Maximum circle radius in pixels. Set this to exclude large false detections. Should be larger than your biggest wells." />
                                 </span>
-                                <span>{detectionSettings.maxRadius}px</span>
+                                <div className="flex items-center gap-1">
+                                    <span>{detectionSettings.maxRadius}px</span>
+                                    <button
+                                        onClick={() => setCalibrationMode('max')}
+                                        disabled={images.length === 0}
+                                        title="Draw a circle on the image to set max radius"
+                                        className={`p-1 rounded hover:bg-muted transition-colors ${calibrationMode === 'max' ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'text-muted-foreground'} ${images.length === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                    >
+                                        <Crosshair className="h-3 w-3" />
+                                    </button>
+                                </div>
                             </div>
                             <input
                                 type="range"
@@ -166,6 +194,11 @@ export function SettingsPanel() {
                                 onChange={e => updateSetting('maxRadius', parseInt(e.target.value))}
                                 className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
                             />
+                            {calibrationMode === 'max' && (
+                                <div className="text-[10px] text-fuchsia-400 bg-fuchsia-500/10 p-1.5 rounded">
+                                    ⟲ Draw a circle around the <strong>largest</strong> well you want to detect
+                                </div>
+                            )}
                         </div>
 
                         <div className="space-y-1">
