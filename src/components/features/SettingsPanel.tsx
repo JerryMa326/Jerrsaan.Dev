@@ -73,7 +73,7 @@ export function SettingsPanel() {
 
             <div className="flex-1 overflow-y-auto p-3 space-y-4 text-sm">
                 {/* Detection Mode */}
-                <div className="space-y-2">
+                <div className="space-y-2" data-tutorial="detection-mode">
                     <label className="text-xs font-medium text-muted-foreground">Detection Mode</label>
                     <div className="flex gap-2">
                         <Button
@@ -161,7 +161,7 @@ export function SettingsPanel() {
                             />
                             {calibrationMode === 'min' && (
                                 <div className="text-[10px] text-cyan-400 bg-cyan-500/10 p-1.5 rounded">
-                                    ⟲ Draw a circle around the <strong>smallest</strong> well you want to detect
+                                    Draw a circle around the <strong>smallest</strong> well to detect
                                 </div>
                             )}
                         </div>
@@ -193,7 +193,7 @@ export function SettingsPanel() {
                             />
                             {calibrationMode === 'max' && (
                                 <div className="text-[10px] text-fuchsia-400 bg-fuchsia-500/10 p-1.5 rounded">
-                                    ⟲ Draw a circle around the <strong>largest</strong> well you want to detect
+                                    Draw a circle around the <strong>largest</strong> well to detect
                                 </div>
                             )}
                         </div>

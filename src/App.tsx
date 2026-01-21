@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown, Plus
+  Menu, X, ChevronDown, Plus, HelpCircle
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { ImageViewer } from '@/components/features/ImageViewer'
@@ -11,6 +11,7 @@ import { RegressionStudio } from '@/components/features/RegressionStudio'
 import { SettingsPanel } from '@/components/features/SettingsPanel'
 import { ShapesList } from '@/components/features/ShapesList'
 import { ColorAnalysisPanel } from '@/components/features/ColorAnalysisPanel'
+import { Tutorial } from '@/components/features/Tutorial'
 import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/opencvUtils'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
   const [rightPanel, setRightPanel] = useState<'shapes' | 'colors'>('shapes')
   const [isDetecting, setIsDetecting] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'none' | 'images' | 'info' | 'settings'>('none')
+  const [showTutorial, setShowTutorial] = useState(false)
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
     removeImage, clearShapesForImage, isGridView, setIsGridView,
@@ -123,6 +125,7 @@ function App() {
             variant={activeTab === 'analyze' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setActiveTab('analyze')}
+            data-tutorial="regression-tab"
           >
             <BarChart3 className="mr-1.5 h-4 w-4" />
             Regression
@@ -162,6 +165,16 @@ function App() {
             accept="image/*"
             onChange={handleFileChange}
           />
+          {/* Help/Tutorial Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden md:flex h-8 w-8"
+            onClick={() => setShowTutorial(true)}
+            title="Guided Tutorial"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </Button>
           {/* Desktop Settings */}
           <Button
             variant={showSettings ? 'default' : 'ghost'}
@@ -195,6 +208,7 @@ function App() {
                   variant="outline"
                   className="w-full"
                   onClick={() => fileInputRef.current?.click()}
+                  data-tutorial="load-images"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -254,7 +268,7 @@ function App() {
                   <ChevronRight className="h-4 w-4" />
                 </Button>
                 <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
-                <Button size="sm" variant="ghost" className="h-7 md:h-8 px-1.5 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting}>
+                <Button size="sm" variant="ghost" className="h-7 md:h-8 px-1.5 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect">
                   {isDetecting ? <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" /> : <Wand2 className="h-3 w-3 md:h-4 md:w-4" />}
                   <span className="hidden sm:inline ml-1">{isDetecting ? 'Detecting...' : 'Auto'}</span>
                 </Button>
@@ -434,6 +448,9 @@ function App() {
       <footer className="h-6 flex items-center justify-center bg-card/50 border-t text-[10px] text-muted-foreground shrink-0">
         Created by Hassaan Vani, Grady Chen, and Jerry Ma
       </footer>
+
+      {/* Tutorial Overlay */}
+      <Tutorial isOpen={showTutorial} onClose={() => setShowTutorial(false)} />
     </div>
   )
 }
