@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react'
 
 function Tooltip({ text }: { text: string }) {
     const [show, setShow] = useState(false)
-    const [position, setPosition] = useState<'left' | 'right' | 'bottom'>('left')
+    const [coords, setCoords] = useState({ top: 0, left: 0 })
     const triggerRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -18,30 +18,27 @@ function Tooltip({ text }: { text: string }) {
             if (rect.right + tooltipWidth + 20 > viewportWidth) {
                 // Check if it would fit on the left
                 if (rect.left - tooltipWidth - 20 > 0) {
-                    setPosition('left')
+                    setCoords({ top: rect.top, left: rect.left - tooltipWidth - 10 })
                 } else {
-                    setPosition('bottom')
+                    setCoords({ top: rect.bottom + 5, left: rect.left - tooltipWidth / 2 })
                 }
             } else {
-                setPosition('right')
+                setCoords({ top: rect.top, left: rect.right + 10 })
             }
         }
     }, [show])
 
     return (
-        <div className="relative inline-block" ref={triggerRef}>
+        <div className="relative inline-block z-[200]" ref={triggerRef}>
             <Info
-                className="w-3 h-3 text-muted-foreground cursor-help ml-1"
+                className="w-3 h-3 text-muted-foreground cursor-help ml-1 hover:text-foreground transition-colors"
                 onMouseEnter={() => setShow(true)}
                 onMouseLeave={() => setShow(false)}
             />
             {show && (
                 <div
-                    className={`absolute z-[100] w-48 p-2 bg-popover border rounded-md shadow-lg text-xs text-popover-foreground
-                        ${position === 'right' ? 'left-5 top-0' : ''}
-                        ${position === 'left' ? 'right-5 top-0' : ''}
-                        ${position === 'bottom' ? 'left-1/2 -translate-x-1/2 top-5' : ''}
-                    `}
+                    className="fixed z-[9999] w-48 p-2 bg-popover border rounded-md shadow-lg text-xs text-popover-foreground"
+                    style={{ top: coords.top, left: coords.left }}
                 >
                     {text}
                 </div>

@@ -18,6 +18,10 @@ export function ImageViewer() {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
+    // Use ref to avoid stale closure issues with calibrationMode in event handlers
+    const calibrationModeRef = useRef(calibrationMode)
+    calibrationModeRef.current = calibrationMode
+
     const [offset, setOffset] = useState({ x: 0, y: 0 })
     const [isDragging, setIsDragging] = useState(false)
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
@@ -346,19 +350,22 @@ export function ImageViewer() {
     }
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        // Pan mode: middle click, alt+click, none mode, or spacebar
-        if (e.button === 1 || (e.button === 0 && e.altKey) || drawingMode === 'none' || spacePressed) {
+        // During calibration, always allow circle drawing (use ref to avoid stale closure)
+        const isCalibrating = calibrationModeRef.current !== 'none'
+
+        // Pan mode: middle click, alt+click, none mode (unless calibrating), or spacebar
+        if (e.button === 1 || (e.button === 0 && e.altKey) || (drawingMode === 'none' && !isCalibrating) || spacePressed) {
             setIsDragging(true)
             setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y })
             return
         }
 
-        // Start drawing (we only get here if drawingMode is not 'none' due to early return above)
+        // Start drawing (we only get here if drawingMode is not 'none' or we're calibrating)
         setIsDrawing(true)
         const pt = getImagePoint(e)
         setDrawStart(pt)
 
-        if (drawingMode === 'crop') {
+        if (drawingMode === 'crop' && !isCalibrating) {
             setCurrentDraftShape({
                 x: pt.x,
                 y: pt.y,
@@ -366,6 +373,7 @@ export function ImageViewer() {
                 height: 0
             })
         } else {
+            // For circle, rectangle, or calibration mode
             setCurrentDraftShape({
                 x: pt.x,
                 y: pt.y,
@@ -387,8 +395,8 @@ export function ImageViewer() {
 
         if (isDrawing && currentDraftShape) {
             const pt = getImagePoint(e)
-            // During calibration mode, always track circle
-            if (calibrationMode !== 'none') {
+            // During calibration mode, always track circle (use ref to avoid stale closure)
+            if (calibrationModeRef.current !== 'none') {
                 const dx = pt.x - drawStart.x
                 const dy = pt.y - drawStart.y
                 const radius = Math.sqrt(dx * dx + dy * dy)
@@ -444,8 +452,9 @@ export function ImageViewer() {
                 return
             }
 
-            // Handle calibration modes (from context)
-            if (calibrationMode !== 'none') {
+            // Handle calibration modes (from context, use ref to avoid stale closure)
+            const currentCalibrationMode = calibrationModeRef.current
+            if (currentCalibrationMode !== 'none') {
                 const radius = currentDraftShape.radius || 0
                 if (radius < 3) {
                     setCurrentDraftShape(null)
@@ -454,9 +463,9 @@ export function ImageViewer() {
 
                 const calibratedRadius = Math.round(radius)
 
-                if (calibrationMode === 'min') {
+                if (currentCalibrationMode === 'min') {
                     setDetectionSettings(prev => ({ ...prev, minRadius: calibratedRadius }))
-                } else if (calibrationMode === 'max') {
+                } else if (currentCalibrationMode === 'max') {
                     setDetectionSettings(prev => ({ ...prev, maxRadius: calibratedRadius }))
                 }
 
@@ -505,12 +514,23 @@ export function ImageViewer() {
     }
 
     const getNextLabel = () => {
-        const labels = 'abcdefghijklmnopqrstuvwxyz'
+        // English lowercase, then Greek lowercase, then Arabic letters
+        const english = 'abcdefghijklmnopqrstuvwxyz'
+        const greek = 'αβγδεζηθικλμνξοπρστυφχψω'
+        const arabic = 'ابتثجحخدذرزسشصضطظعغفقكلمنهوي'
+        const allLabels = english + greek + arabic
+
+        // Use ALL shapes across ALL images, not just current image
         const usedLabels = new Set(shapes.map(s => s.label))
-        for (const char of labels) {
+
+        for (const char of allLabels) {
             if (!usedLabels.has(char)) return char
         }
-        return '?'
+
+        // If all single characters used, return numbered labels
+        let num = 1
+        while (usedLabels.has(`#${num}`)) num++
+        return `#${num}`
     }
 
     const handleWheel = (e: React.WheelEvent) => {
