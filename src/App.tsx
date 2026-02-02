@@ -256,35 +256,37 @@ function App() {
 
             {/* Main Canvas Area */}
             <div className="flex-1 min-w-0 flex flex-col relative bg-neutral-900 overflow-hidden">
-              {/* Toolbar - Responsive */}
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm px-1.5 md:px-2 py-1 rounded-lg">
-                <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-[10px] md:text-xs w-12 md:w-16 text-center">
-                  {images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}
-                </span>
-                <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-                <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
-                <Button size="sm" variant="ghost" className="h-7 md:h-8 px-1.5 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect">
-                  {isDetecting ? <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" /> : <Wand2 className="h-3 w-3 md:h-4 md:w-4" />}
-                  <span className="hidden sm:inline ml-1">{isDetecting ? 'Detecting...' : 'Auto'}</span>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
-                  onClick={() => clearShapesForImage(currentImageIndex)}
-                  disabled={images.length === 0}
-                >
-                  <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
-                  <span className="hidden sm:inline ml-1">Clear</span>
-                </Button>
-              </div>
+              {/* Toolbar - Responsive (Hide in Grid View) */}
+              {!isGridView && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm px-1.5 md:px-2 py-1 rounded-lg">
+                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-[10px] md:text-xs w-12 md:w-16 text-center">
+                    {images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}
+                  </span>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
+                  <Button size="sm" variant="ghost" className="h-7 md:h-8 px-1.5 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect">
+                    {isDetecting ? <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" /> : <Wand2 className="h-3 w-3 md:h-4 md:w-4" />}
+                    <span className="hidden sm:inline ml-1">{isDetecting ? 'Detecting...' : 'Auto'}</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
+                    onClick={() => clearShapesForImage(currentImageIndex)}
+                    disabled={images.length === 0}
+                  >
+                    <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
+                    <span className="hidden sm:inline ml-1">Clear</span>
+                  </Button>
+                </div>
+              )}
 
-              {/* Mobile Bottom Bar */}
+              {/* Mobile Bottom Bar (unchanged) */}
               <div className="md:hidden absolute bottom-0 left-0 right-0 z-10 flex bg-card/95 backdrop-blur-sm border-t">
                 <button
                   className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'images' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
@@ -310,7 +312,66 @@ function App() {
               </div>
 
               {images.length > 0 ? (
-                <ImageViewer />
+                isGridView ? (
+                  <div className="h-full w-full overflow-y-auto p-4 md:p-6 bg-background/50">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {images.map((img, idx) => (
+                        <div
+                          key={idx}
+                          className={`group relative aspect-square bg-card rounded-lg overflow-hidden border-2 cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg ${currentImageIndex === idx ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'
+                            }`}
+                          onClick={() => {
+                            setCurrentImageIndex(idx)
+                            setIsGridView(false)
+                          }}
+                        >
+                          <img src={img.src} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
+
+                          {/* Overlay Gradient */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                          {/* Image Number */}
+                          <div className="absolute bottom-2 left-2 text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                            Image {idx + 1}
+                          </div>
+
+                          {/* Delete Button */}
+                          <button
+                            className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-destructive text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (window.confirm(`Delete image ${idx + 1}?`)) {
+                                removeImage(idx)
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+
+                          {/* Selection Indicator */}
+                          {currentImageIndex === idx && (
+                            <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm">
+                              SELECTED
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Add Image Card */}
+                      <div
+                        className="aspect-square border-2 border-dashed border-muted rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-muted/50 transition-colors group"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <div className="h-12 w-12 rounded-full bg-muted group-hover:bg-background flex items-center justify-center mb-3 transition-colors">
+                          <Plus className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                        </div>
+                        <span className="text-sm font-medium text-muted-foreground group-hover:text-foreground">Add Images</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <ImageViewer />
+                )
               ) : (
                 <div className="h-full w-full flex items-center justify-center pb-16 md:pb-0">
                   <div className="text-center space-y-4 px-4">
