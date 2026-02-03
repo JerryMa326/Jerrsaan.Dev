@@ -29,16 +29,23 @@ export function ShapesList() {
     }
 
     const handleQuickSort = () => {
-        const labels = 'abcdefghijklmnopqrstuvwxyz'
-        const sorted = [...currentShapes].sort((a, b) => {
+        // Get existing labels from the current shapes and sort them naturally
+        // This ensures we reuse the same set of labels (e.g. 'f', 'g', 'h', 'i')
+        // instead of overwriting them with 'a', 'b', 'c', 'd'
+        const existingLabels = currentShapes.map(s => s.label)
+        const sortedLabels = [...existingLabels].sort((a, b) =>
+            a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+        )
+
+        const sortedShapes = [...currentShapes].sort((a, b) => {
             const posA = sortDirection === 'top-to-bottom' ? a.y : a.x
             const posB = sortDirection === 'top-to-bottom' ? b.y : b.x
             return sortOrder === 'ascending' ? posA - posB : posB - posA
         })
 
-        const updates: { id: string; label: string }[] = sorted.map((shape, idx) => ({
+        const updates: { id: string; label: string }[] = sortedShapes.map((shape, idx) => ({
             id: shape.id,
-            label: labels[idx] || `${idx + 1}`
+            label: sortedLabels[idx]
         }))
 
         setShapes(prev => prev.map(s => {
@@ -129,8 +136,8 @@ export function ShapesList() {
                 <div
                     key={shape.id}
                     className={`flex items-center gap-2 p-2 rounded-md text-xs cursor-pointer transition-colors ${selectedShapeId === shape.id
-                            ? 'bg-primary/20 ring-1 ring-primary'
-                            : 'bg-muted/50 hover:bg-muted'
+                        ? 'bg-primary/20 ring-1 ring-primary'
+                        : 'bg-muted/50 hover:bg-muted'
                         }`}
                     onClick={() => setSelectedShapeId(selectedShapeId === shape.id ? null : shape.id)}
                 >
