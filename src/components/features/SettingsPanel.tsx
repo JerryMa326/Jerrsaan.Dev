@@ -1,7 +1,8 @@
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
-import { Circle, Square, Info, Crosshair } from 'lucide-react'
+import { Circle, Square, Info, Crosshair, Trash2, Database } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
+import { hasCachedData } from '@/lib/cacheUtils'
 
 function Tooltip({ text }: { text: string }) {
     const [show, setShow] = useState(false)
@@ -58,8 +59,31 @@ export function SettingsPanel() {
         setRawRgbMode,
         calibrationMode,
         setCalibrationMode,
-        images
+        images,
+        clearCache,
+        isCacheLoaded
     } = useApp()
+
+    const [isClearing, setIsClearing] = useState(false)
+    const [cacheExists, setCacheExists] = useState(false)
+
+    // Check if cache exists on mount and when cache operations complete
+    useEffect(() => {
+        setCacheExists(hasCachedData())
+    }, [isCacheLoaded])
+
+    const handleClearCache = async () => {
+        if (!window.confirm('Clear all cached data? This will remove saved images, shapes, and settings. The current session will not be affected.')) {
+            return
+        }
+        setIsClearing(true)
+        try {
+            await clearCache()
+            setCacheExists(false)
+        } finally {
+            setIsClearing(false)
+        }
+    }
 
     const updateSetting = (key: keyof typeof detectionSettings, value: number | boolean | 'circle' | 'rectangle') => {
         setDetectionSettings(prev => ({ ...prev, [key]: value }))
@@ -447,6 +471,33 @@ export function SettingsPanel() {
                         className="w-full"
                     >
                         {rawRgbMode ? 'Raw RGB' : 'Calibrated RGB'}
+                    </Button>
+                </div>
+
+                {/* Cache Management */}
+                <div className="border-t pt-3 space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Database className="w-3 h-3" />
+                        Browser Cache
+                    </label>
+                    <p className="text-[10px] text-muted-foreground">
+                        Your work is automatically saved to browser storage and restored when you return.
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${cacheExists ? 'bg-green-500' : 'bg-muted'}`} />
+                        <span className="text-xs text-muted-foreground">
+                            {cacheExists ? 'Cache active' : 'No cached data'}
+                        </span>
+                    </div>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleClearCache}
+                        disabled={isClearing || !cacheExists}
+                        className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        {isClearing ? 'Clearing...' : 'Clear Cache'}
                     </Button>
                 </div>
             </div>

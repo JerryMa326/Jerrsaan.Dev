@@ -1,6 +1,14 @@
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import type { Shape, CalibrationData, RegressionModel, CommittedPoint, DetectionSettings, AppState } from '../types'
 import { defaultDetectionSettings } from '../types'
+import {
+    loadCachedImages,
+    loadCachedAppState,
+    debouncedSaveState,
+    forceSaveState,
+    clearAllCache,
+    hasCachedData
+} from '../lib/cacheUtils'
 
 interface AppContextType extends AppState {
     setImages: React.Dispatch<React.SetStateAction<HTMLImageElement[]>>
@@ -25,6 +33,10 @@ interface AppContextType extends AppState {
     setSelectedShapeId: (id: string | null) => void
     calibrationMode: 'none' | 'min' | 'max'
     setCalibrationMode: (mode: 'none' | 'min' | 'max') => void
+    // Cache controls
+    clearCache: () => Promise<void>
+    saveCache: () => void
+    isCacheLoaded: boolean
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -47,6 +59,104 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [boundingBox, setBoundingBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
     const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
     const [calibrationMode, setCalibrationMode] = useState<'none' | 'min' | 'max'>('none')
+    const [isCacheLoaded, setIsCacheLoaded] = useState(false)
+
+    // Ref to track if we're still initializing (to prevent save during restore)
+    const isInitializing = useRef(true)
+
+    // Restore cached data on mount
+    useEffect(() => {
+        async function restoreCache() {
+            if (!hasCachedData()) {
+                isInitializing.current = false
+                setIsCacheLoaded(true)
+                return
+            }
+
+            try {
+                // Load images from IndexedDB
+                const cachedImages = await loadCachedImages()
+                if (cachedImages.length > 0) {
+                    setImages(cachedImages)
+                }
+
+                // Load state from localStorage
+                const cachedState = loadCachedAppState()
+                if (cachedState) {
+                    setShapes(cachedState.shapes || [])
+                    setCalibrationData(cachedState.calibrationData || { red: null, green: null, blue: null, yellow: null, pink: null })
+                    setRegressionModels(cachedState.regressionModels || {})
+                    setCommittedPoints(cachedState.committedPoints || [])
+                    setDetectionSettings(cachedState.detectionSettings || defaultDetectionSettings)
+                    setColorMode(cachedState.colorMode || 'RGB')
+                    setRawRgbMode(cachedState.rawRgbMode ?? true)
+                    setCurrentImageIndex(Math.min(cachedState.currentImageIndex || 0, Math.max(0, cachedImages.length - 1)))
+                    setIsGridView(cachedState.isGridView ?? false)
+                    setZoomLevel(cachedState.zoomLevel || 1)
+                    setRotationAngle(cachedState.rotationAngle || 0)
+                    setBoundingBox(cachedState.boundingBox || null)
+                }
+            } catch (error) {
+                console.error('Error restoring cache:', error)
+            } finally {
+                isInitializing.current = false
+                setIsCacheLoaded(true)
+            }
+        }
+
+        restoreCache()
+    }, [])
+
+    // Auto-save state when it changes (debounced)
+    useEffect(() => {
+        // Don't save during initialization
+        if (isInitializing.current) return
+
+        debouncedSaveState(images, {
+            shapes,
+            calibrationData,
+            regressionModels,
+            committedPoints,
+            detectionSettings,
+            colorMode,
+            rawRgbMode,
+            currentImageIndex,
+            isGridView,
+            zoomLevel,
+            rotationAngle,
+            boundingBox
+        })
+    }, [
+        images, shapes, calibrationData, regressionModels, committedPoints,
+        detectionSettings, colorMode, rawRgbMode, currentImageIndex,
+        isGridView, zoomLevel, rotationAngle, boundingBox
+    ])
+
+    // Manual cache control functions
+    const clearCache = useCallback(async () => {
+        await clearAllCache()
+    }, [])
+
+    const saveCache = useCallback(() => {
+        forceSaveState(images, {
+            shapes,
+            calibrationData,
+            regressionModels,
+            committedPoints,
+            detectionSettings,
+            colorMode,
+            rawRgbMode,
+            currentImageIndex,
+            isGridView,
+            zoomLevel,
+            rotationAngle,
+            boundingBox
+        })
+    }, [
+        images, shapes, calibrationData, regressionModels, committedPoints,
+        detectionSettings, colorMode, rawRgbMode, currentImageIndex,
+        isGridView, zoomLevel, rotationAngle, boundingBox
+    ])
 
     const addShape = useCallback((shape: Shape) => {
         setShapes(prev => [...prev, shape])
@@ -94,7 +204,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             rotationAngle, setRotationAngle,
             boundingBox, setBoundingBox,
             selectedShapeId, setSelectedShapeId,
-            calibrationMode, setCalibrationMode
+            calibrationMode, setCalibrationMode,
+            clearCache, saveCache, isCacheLoaded
         }}>
             {children}
         </AppContext.Provider>
