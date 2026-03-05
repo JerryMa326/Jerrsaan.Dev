@@ -1,11 +1,13 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown, Plus, HelpCircle
+  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import { useToast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ImageViewer } from '@/components/features/ImageViewer'
 import { RegressionStudio } from '@/components/features/RegressionStudio'
 import { SettingsPanel } from '@/components/features/SettingsPanel'
@@ -16,41 +18,86 @@ import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/op
 
 function App() {
   const [activeTab, setActiveTab] = useState<'detect' | 'analyze'>('detect')
-  const [showSettings, setShowSettings] = useState(true) // Default to open for better UX
+  const [showSettings, setShowSettings] = useState(true)
   const [rightPanel, setRightPanel] = useState<'shapes' | 'colors'>('shapes')
   const [isDetecting, setIsDetecting] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'none' | 'images' | 'info' | 'settings'>('none')
   const [showTutorial, setShowTutorial] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [opencvReady, setOpencvReady] = useState(false)
+  const [confirmState, setConfirmState] = useState<{ open: boolean; message: string; onConfirm: () => void }>({ open: false, message: '', onConfirm: () => { } })
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
     removeImage, clearShapesForImage, isGridView, setIsGridView,
-    shapes, setShapes, detectionSettings, boundingBox
+    shapes, setShapes, detectionSettings, boundingBox,
+    undo, redo, canUndo, canRedo
   } = useApp()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { toast } = useToast()
+
+  // Poll for OpenCV readiness
+  useEffect(() => {
+    if (opencvReady) return
+    const interval = setInterval(() => {
+      if (isOpenCVReady()) {
+        setOpencvReady(true)
+        clearInterval(interval)
+      }
+    }, 500)
+    return () => clearInterval(interval)
+  }, [opencvReady])
+
+  const loadImageFiles = useCallback((files: File[]) => {
+    const imageFiles = files.filter(f => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+
+    const newImages: HTMLImageElement[] = []
+    let loadedCount = 0
+    imageFiles.forEach(file => {
+      const img = new Image()
+      img.src = URL.createObjectURL(file)
+      img.onload = () => {
+        newImages.push(img)
+        loadedCount++
+        if (loadedCount === imageFiles.length) {
+          setImages(prev => [...prev, ...newImages])
+          toast(`Loaded ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''}`, 'success')
+        }
+      }
+    })
+  }, [setImages, toast])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newImages: HTMLImageElement[] = []
-      const files = Array.from(e.target.files)
+      loadImageFiles(Array.from(e.target.files))
+    }
+  }
 
-      let loadedCount = 0
-      files.forEach(file => {
-        const img = new Image()
-        img.src = URL.createObjectURL(file)
-        img.onload = () => {
-          newImages.push(img)
-          loadedCount++
-          if (loadedCount === files.length) {
-            setImages(prev => [...prev, ...newImages])
-          }
-        }
-      })
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    if (e.dataTransfer.files.length > 0) {
+      loadImageFiles(Array.from(e.dataTransfer.files))
     }
   }
 
   const handleAutoDetect = async () => {
     if (!isOpenCVReady()) {
-      alert('OpenCV.js is still loading. Please wait a moment and try again.')
+      toast('OpenCV.js is still loading. Please wait a moment and try again.', 'error')
       return
     }
 
@@ -59,7 +106,6 @@ function App() {
 
     setIsDetecting(true)
 
-    // Use setTimeout to allow the UI to update (show spinner) before heavy computation
     setTimeout(() => {
       try {
         const existingLabels = new Set(shapes.filter(s => s.imageIndex !== currentImageIndex).map(s => s.label))
@@ -72,20 +118,59 @@ function App() {
         }
 
         if (newShapes.length === 0) {
-          alert('No shapes detected. Try adjusting the detection parameters.')
+          toast('No shapes detected. Try adjusting the detection parameters.', 'info')
         } else {
           setShapes(prev => [
             ...prev.filter(s => s.imageIndex !== currentImageIndex),
             ...newShapes
           ])
+          toast(`Detected ${newShapes.length} shape${newShapes.length > 1 ? 's' : ''}`, 'success')
         }
       } catch (error) {
         console.error('Detection error:', error)
-        alert(`Detection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        toast(`Detection failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
       } finally {
         setIsDetecting(false)
       }
     }, 50)
+  }
+
+  const handleBatchDetect = async () => {
+    if (!isOpenCVReady()) {
+      toast('OpenCV.js is still loading.', 'error')
+      return
+    }
+    if (images.length === 0) return
+
+    setIsDetecting(true)
+    const allNewShapes: typeof shapes = []
+    const existingLabels = new Set<string>()
+
+    for (let i = 0; i < images.length; i++) {
+      toast(`Detecting ${i + 1}/${images.length}...`, 'info')
+      // yield to UI
+      await new Promise(r => setTimeout(r, 50))
+
+      try {
+        let detected
+        if (detectionSettings.mode === 'circle') {
+          detected = autoDetectCircles(images[i], detectionSettings, i, existingLabels, null)
+        } else {
+          detected = autoDetectRectangles(images[i], detectionSettings, i, existingLabels, null)
+        }
+        allNewShapes.push(...detected)
+      } catch (error) {
+        console.error(`Detection failed for image ${i + 1}:`, error)
+      }
+    }
+
+    setShapes(allNewShapes)
+    toast(`Batch complete: ${allNewShapes.length} shapes across ${images.length} images`, 'success')
+    setIsDetecting(false)
+  }
+
+  const showConfirm = (message: string, onConfirm: () => void) => {
+    setConfirmState({ open: true, message, onConfirm })
   }
 
   const handlePrevImage = () => {
@@ -99,16 +184,38 @@ function App() {
   const currentShapeCount = shapes.filter(s => s.imageIndex === currentImageIndex).length
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background text-foreground overflow-hidden">
-      {/* Header - Mobile Responsive */}
+    <div
+      className="flex h-screen w-full flex-col bg-background text-foreground overflow-hidden"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragOver && (
+        <div className="fixed inset-0 z-[9998] bg-primary/10 border-4 border-dashed border-primary pointer-events-none flex items-center justify-center">
+          <div className="bg-card px-6 py-4 rounded-xl shadow-2xl text-lg font-medium">
+            Drop images here
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <header className="flex h-12 md:h-12 items-center justify-between border-b bg-card px-2 md:px-4 shrink-0 z-50">
         <div className="flex items-center gap-2">
           <img src="/favicon-removebg-preview.png" alt="ChemClub" className="h-5 w-5 md:h-6 md:w-6" />
           <h1 className="text-xs md:text-sm font-semibold tracking-tight">
             <span className="hidden sm:inline">ChemClub Analyst</span>
             <span className="sm:hidden">ChemClub</span>
-            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v3.1</span>
+            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v4.0</span>
           </h1>
+          {/* OpenCV Status */}
+          <div className="hidden sm:flex items-center ml-2" title={opencvReady ? 'OpenCV ready' : 'Loading OpenCV...'}>
+            {opencvReady ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
+            )}
+          </div>
         </div>
 
         {/* Desktop Tab Buttons */}
@@ -165,6 +272,13 @@ function App() {
             accept="image/*"
             onChange={handleFileChange}
           />
+          {/* Undo/Redo */}
+          <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={undo} disabled={!canUndo} title="Undo (Cmd+Z)">
+            <Undo2 className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={redo} disabled={!canRedo} title="Redo (Cmd+Shift+Z)">
+            <Redo2 className="h-4 w-4" />
+          </Button>
           {/* Help/Tutorial Button */}
           <Button
             variant="ghost"
@@ -239,9 +353,7 @@ function App() {
                       className="absolute top-0.5 right-0.5 w-4 h-4 bg-black/60 hover:bg-destructive rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (window.confirm(`Delete image ${idx + 1}?`)) {
-                          removeImage(idx)
-                        }
+                        showConfirm(`Delete image ${idx + 1}?`, () => removeImage(idx))
                       }}
                     >
                       <X className="h-2.5 w-2.5" />
@@ -277,6 +389,17 @@ function App() {
                     size="sm"
                     variant="ghost"
                     className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
+                    onClick={handleBatchDetect}
+                    disabled={images.length === 0 || isDetecting}
+                    title="Detect all images"
+                  >
+                    <PlayCircle className="h-3 w-3 md:h-4 md:w-4" />
+                    <span className="hidden sm:inline ml-1">All</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
                     onClick={() => clearShapesForImage(currentImageIndex)}
                     disabled={images.length === 0}
                   >
@@ -286,7 +409,7 @@ function App() {
                 </div>
               )}
 
-              {/* Mobile Bottom Bar (unchanged) */}
+              {/* Mobile Bottom Bar */}
               <div className="md:hidden absolute bottom-0 left-0 right-0 z-10 flex bg-card/95 backdrop-blur-sm border-t">
                 <button
                   className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'images' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
@@ -327,28 +450,22 @@ function App() {
                         >
                           <img src={img.src} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
 
-                          {/* Overlay Gradient */}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                          {/* Image Number */}
                           <div className="absolute bottom-2 left-2 text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                             Image {idx + 1}
                           </div>
 
-                          {/* Delete Button */}
                           <button
                             className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-destructive text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={(e) => {
                               e.stopPropagation()
-                              if (window.confirm(`Delete image ${idx + 1}?`)) {
-                                removeImage(idx)
-                              }
+                              showConfirm(`Delete image ${idx + 1}?`, () => removeImage(idx))
                             }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
 
-                          {/* Selection Indicator */}
                           {currentImageIndex === idx && (
                             <div className="absolute top-2 left-2 bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm">
                               SELECTED
@@ -374,12 +491,38 @@ function App() {
                 )
               ) : (
                 <div className="h-full w-full flex items-center justify-center pb-16 md:pb-0">
-                  <div className="text-center space-y-4 px-4">
-                    <div className="text-muted-foreground">No images loaded</div>
-                    <Button onClick={() => fileInputRef.current?.click()}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Load Images
-                    </Button>
+                  <div className="text-center space-y-6 px-4 max-w-md">
+                    <div className="mx-auto w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                      <ImageIcon className="h-8 w-8 text-primary" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold mb-1">Get Started</h2>
+                      <p className="text-sm text-muted-foreground">Load images of your well plates to begin color analysis and regression.</p>
+                    </div>
+                    <div className="text-left space-y-3 bg-card/50 rounded-lg p-4 border">
+                      <div className="flex items-start gap-3 text-sm">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">1</span>
+                        <span>Load images using the button below or drag & drop</span>
+                      </div>
+                      <div className="flex items-start gap-3 text-sm">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">2</span>
+                        <span>Auto-detect or manually draw shapes on wells</span>
+                      </div>
+                      <div className="flex items-start gap-3 text-sm">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">3</span>
+                        <span>Enter concentrations and run regression analysis</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 justify-center">
+                      <Button onClick={() => fileInputRef.current?.click()}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Load Images
+                      </Button>
+                      <Button variant="outline" onClick={() => setShowTutorial(true)}>
+                        <HelpCircle className="mr-2 h-4 w-4" />
+                        Tutorial
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -456,9 +599,7 @@ function App() {
                               className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 hover:bg-destructive rounded-full flex items-center justify-center"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                if (window.confirm(`Delete image ${idx + 1}?`)) {
-                                  removeImage(idx)
-                                }
+                                showConfirm(`Delete image ${idx + 1}?`, () => removeImage(idx))
                               }}
                             >
                               <X className="h-3 w-3" />
@@ -512,6 +653,18 @@ function App() {
 
       {/* Tutorial Overlay */}
       <Tutorial isOpen={showTutorial} onClose={() => setShowTutorial(false)} />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmState.open}
+        message={confirmState.message}
+        destructive
+        onConfirm={() => {
+          confirmState.onConfirm()
+          setConfirmState(s => ({ ...s, open: false }))
+        }}
+        onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
+      />
     </div>
   )
 }

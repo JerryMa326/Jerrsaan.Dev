@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Trash2, ArrowUpDown, ArrowDown, ArrowUp, ArrowRight, ArrowLeft } from 'lucide-react'
-import { rgbToCmyk } from '@/lib/imageUtils'
+import { rgbToCmyk, rgbToHsl, rgbToHsv } from '@/lib/imageUtils'
+import { calibrateColor } from '@/lib/colorCalibration'
 
 type SortDirection = 'top-to-bottom' | 'left-to-right'
 type SortOrder = 'ascending' | 'descending'
@@ -10,7 +11,8 @@ type SortOrder = 'ascending' | 'descending'
 export function ShapesList() {
     const {
         shapes, currentImageIndex, removeShape, updateShape, colorMode,
-        selectedShapeId, setSelectedShapeId, setShapes
+        selectedShapeId, setSelectedShapeId, setShapes,
+        rawRgbMode, colorCalibration
     } = useApp()
 
     const [showQuickSort, setShowQuickSort] = useState(false)
@@ -19,19 +21,30 @@ export function ShapesList() {
 
     const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
 
+    const getColor = (rgb: [number, number, number]) =>
+        rawRgbMode ? rgb : calibrateColor(rgb, colorCalibration)
+
     const formatColor = (rgb: [number, number, number]) => {
-        if (colorMode === 'RGB') {
-            return `RGB(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`
-        } else {
-            const cmyk = rgbToCmyk(rgb)
-            return `C${(cmyk[0] * 100).toFixed(0)} M${(cmyk[1] * 100).toFixed(0)} Y${(cmyk[2] * 100).toFixed(0)} K${(cmyk[3] * 100).toFixed(0)}`
+        const c = getColor(rgb)
+        switch (colorMode) {
+            case 'RGB': return `RGB(${c[0]}, ${c[1]}, ${c[2]})`
+            case 'CMYK': {
+                const cmyk = rgbToCmyk(c)
+                return `C${(cmyk[0] * 100).toFixed(0)} M${(cmyk[1] * 100).toFixed(0)} Y${(cmyk[2] * 100).toFixed(0)} K${(cmyk[3] * 100).toFixed(0)}`
+            }
+            case 'HSL': {
+                const hsl = rgbToHsl(c)
+                return `H${hsl[0]} S${hsl[1]}% L${hsl[2]}%`
+            }
+            case 'HSV': {
+                const hsv = rgbToHsv(c)
+                return `H${hsv[0]} S${hsv[1]}% V${hsv[2]}%`
+            }
         }
     }
 
     const handleQuickSort = () => {
-        // Get existing labels from the current shapes and sort them naturally
-        // This ensures we reuse the same set of labels (e.g. 'f', 'g', 'h', 'i')
-        // instead of overwriting them with 'a', 'b', 'c', 'd'
+        // Reuse existing labels sorted naturally instead of overwriting with a,b,c...
         const existingLabels = currentShapes.map(s => s.label)
         const sortedLabels = [...existingLabels].sort((a, b) =>
             a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
@@ -132,44 +145,47 @@ export function ShapesList() {
                 </div>
             )}
 
-            {currentShapes.map(shape => (
-                <div
-                    key={shape.id}
-                    className={`flex items-center gap-2 p-2 rounded-md text-xs cursor-pointer transition-colors ${selectedShapeId === shape.id
-                        ? 'bg-primary/20 ring-1 ring-primary'
-                        : 'bg-muted/50 hover:bg-muted'
-                        }`}
-                    onClick={() => setSelectedShapeId(selectedShapeId === shape.id ? null : shape.id)}
-                >
+            {currentShapes.map(shape => {
+                const c = getColor(shape.color)
+                return (
                     <div
-                        className="w-6 h-6 rounded border flex-shrink-0"
-                        style={{ backgroundColor: `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})` }}
-                    />
-                    <div className="flex-1 min-w-0">
-                        <input
-                            type="text"
-                            value={shape.label}
-                            onChange={(e) => updateShape(shape.id, { label: e.target.value })}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-10 bg-transparent border-b border-transparent hover:border-muted-foreground focus:border-primary outline-none font-mono font-bold"
-                        />
-                        <div className="text-muted-foreground truncate">
-                            {formatColor(shape.color)}
-                        </div>
-                    </div>
-                    <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6 text-destructive hover:text-destructive"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            removeShape(shape.id)
-                        }}
+                        key={shape.id}
+                        className={`flex items-center gap-2 p-2 rounded-md text-xs cursor-pointer transition-colors ${selectedShapeId === shape.id
+                            ? 'bg-primary/20 ring-1 ring-primary'
+                            : 'bg-muted/50 hover:bg-muted'
+                            }`}
+                        onClick={() => setSelectedShapeId(selectedShapeId === shape.id ? null : shape.id)}
                     >
-                        <Trash2 className="h-3 w-3" />
-                    </Button>
-                </div>
-            ))}
+                        <div
+                            className="w-6 h-6 rounded border flex-shrink-0"
+                            style={{ backgroundColor: `rgb(${c[0]}, ${c[1]}, ${c[2]})` }}
+                        />
+                        <div className="flex-1 min-w-0">
+                            <input
+                                type="text"
+                                value={shape.label}
+                                onChange={(e) => updateShape(shape.id, { label: e.target.value })}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-10 bg-transparent border-b border-transparent hover:border-muted-foreground focus:border-primary outline-none font-mono font-bold"
+                            />
+                            <div className="text-muted-foreground truncate">
+                                {formatColor(shape.color)}
+                            </div>
+                        </div>
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-destructive hover:text-destructive"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                removeShape(shape.id)
+                            }}
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </Button>
+                    </div>
+                )
+            })}
         </div>
     )
 }

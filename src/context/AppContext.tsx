@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
-import type { Shape, CalibrationData, RegressionModel, CommittedPoint, DetectionSettings, AppState } from '../types'
+import type { Shape, CommittedPoint, DetectionSettings, AppState } from '../types'
 import { defaultDetectionSettings } from '../types'
+import type { RegressionModel } from '../lib/regressionUtils'
+import type { ColorCalibration } from '../lib/colorCalibration'
+import { defaultColorCalibration } from '../lib/colorCalibration'
+import { useUndoRedo } from '../hooks/useUndoRedo'
 import {
     loadCachedImages,
     loadCachedAppState,
@@ -19,20 +23,26 @@ interface AppContextType extends AppState {
     updateShape: (id: string, updates: Partial<Shape>) => void
     clearShapesForImage: (imageIndex: number) => void
     removeImage: (imageIndex: number) => void
-    setCalibrationData: React.Dispatch<React.SetStateAction<CalibrationData>>
+    regressionModels: Record<string, RegressionModel>
     setRegressionModels: React.Dispatch<React.SetStateAction<Record<string, RegressionModel>>>
     setCommittedPoints: React.Dispatch<React.SetStateAction<CommittedPoint[]>>
     setIsGridView: (isGrid: boolean) => void
     setDetectionSettings: React.Dispatch<React.SetStateAction<DetectionSettings>>
-    setColorMode: (mode: 'RGB' | 'CMYK') => void
+    setColorMode: (mode: 'RGB' | 'CMYK' | 'HSL' | 'HSV') => void
     setRawRgbMode: (raw: boolean) => void
     setZoomLevel: (zoom: number) => void
     setRotationAngle: (angle: number) => void
     setBoundingBox: (box: { x: number; y: number; width: number; height: number } | null) => void
     selectedShapeId: string | null
     setSelectedShapeId: (id: string | null) => void
-    calibrationMode: 'none' | 'min' | 'max'
-    setCalibrationMode: (mode: 'none' | 'min' | 'max') => void
+    calibrationMode: 'none' | 'min' | 'max' | 'white' | 'black'
+    setCalibrationMode: (mode: 'none' | 'min' | 'max' | 'white' | 'black') => void
+    colorCalibration: ColorCalibration
+    setColorCalibration: React.Dispatch<React.SetStateAction<ColorCalibration>>
+    undo: () => void
+    redo: () => void
+    canUndo: boolean
+    canRedo: boolean
     // Cache controls
     clearCache: () => Promise<void>
     saveCache: () => void
@@ -44,24 +54,22 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 export function AppProvider({ children }: { children: React.ReactNode }) {
     const [images, setImages] = useState<HTMLImageElement[]>([])
     const [currentImageIndex, setCurrentImageIndex] = useState(0)
-    const [shapes, setShapes] = useState<Shape[]>([])
-    const [calibrationData, setCalibrationData] = useState<CalibrationData>({
-        red: null, green: null, blue: null, yellow: null, pink: null
-    })
+    const [shapes, setShapesInternal] = useState<Shape[]>([])
     const [regressionModels, setRegressionModels] = useState<Record<string, RegressionModel>>({})
     const [committedPoints, setCommittedPoints] = useState<CommittedPoint[]>([])
     const [isGridView, setIsGridView] = useState(false)
     const [detectionSettings, setDetectionSettings] = useState<DetectionSettings>(defaultDetectionSettings)
-    const [colorMode, setColorMode] = useState<'RGB' | 'CMYK'>('RGB')
+    const [colorMode, setColorMode] = useState<'RGB' | 'CMYK' | 'HSL' | 'HSV'>('RGB')
     const [rawRgbMode, setRawRgbMode] = useState(true)
     const [zoomLevel, setZoomLevel] = useState(1)
     const [rotationAngle, setRotationAngle] = useState(0)
     const [boundingBox, setBoundingBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
     const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
-    const [calibrationMode, setCalibrationMode] = useState<'none' | 'min' | 'max'>('none')
+    const [calibrationMode, setCalibrationMode] = useState<'none' | 'min' | 'max' | 'white' | 'black'>('none')
+    const [colorCalibration, setColorCalibration] = useState<ColorCalibration>(defaultColorCalibration)
     const [isCacheLoaded, setIsCacheLoaded] = useState(false)
 
-    // Ref to track if we're still initializing (to prevent save during restore)
+    const undoRedo = useUndoRedo()
     const isInitializing = useRef(true)
 
     // Restore cached data on mount
@@ -74,17 +82,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
 
             try {
-                // Load images from IndexedDB
                 const cachedImages = await loadCachedImages()
                 if (cachedImages.length > 0) {
                     setImages(cachedImages)
                 }
 
-                // Load state from localStorage
                 const cachedState = loadCachedAppState()
                 if (cachedState) {
-                    setShapes(cachedState.shapes || [])
-                    setCalibrationData(cachedState.calibrationData || { red: null, green: null, blue: null, yellow: null, pink: null })
+                    setShapesInternal(cachedState.shapes || [])
                     setRegressionModels(cachedState.regressionModels || {})
                     setCommittedPoints(cachedState.committedPoints || [])
                     setDetectionSettings(cachedState.detectionSettings || defaultDetectionSettings)
@@ -95,6 +100,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     setZoomLevel(cachedState.zoomLevel || 1)
                     setRotationAngle(cachedState.rotationAngle || 0)
                     setBoundingBox(cachedState.boundingBox || null)
+                    if (cachedState.colorCalibration) {
+                        setColorCalibration(cachedState.colorCalibration)
+                    }
                 }
             } catch (error) {
                 console.error('Error restoring cache:', error)
@@ -109,12 +117,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Auto-save state when it changes (debounced)
     useEffect(() => {
-        // Don't save during initialization
         if (isInitializing.current) return
 
         debouncedSaveState(images, {
             shapes,
-            calibrationData,
             regressionModels,
             committedPoints,
             detectionSettings,
@@ -124,15 +130,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             isGridView,
             zoomLevel,
             rotationAngle,
-            boundingBox
+            boundingBox,
+            colorCalibration
         })
     }, [
-        images, shapes, calibrationData, regressionModels, committedPoints,
+        images, shapes, regressionModels, committedPoints,
         detectionSettings, colorMode, rawRgbMode, currentImageIndex,
-        isGridView, zoomLevel, rotationAngle, boundingBox
+        isGridView, zoomLevel, rotationAngle, boundingBox, colorCalibration
     ])
 
-    // Manual cache control functions
     const clearCache = useCallback(async () => {
         await clearAllCache()
     }, [])
@@ -140,7 +146,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const saveCache = useCallback(() => {
         forceSaveState(images, {
             shapes,
-            calibrationData,
             regressionModels,
             committedPoints,
             detectionSettings,
@@ -150,42 +155,84 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             isGridView,
             zoomLevel,
             rotationAngle,
-            boundingBox
+            boundingBox,
+            colorCalibration
         })
     }, [
-        images, shapes, calibrationData, regressionModels, committedPoints,
+        images, shapes, regressionModels, committedPoints,
         detectionSettings, colorMode, rawRgbMode, currentImageIndex,
-        isGridView, zoomLevel, rotationAngle, boundingBox
+        isGridView, zoomLevel, rotationAngle, boundingBox, colorCalibration
     ])
 
+    // Undo/redo wrappers
+    const pushAndSet = useCallback((updater: (prev: Shape[]) => Shape[]) => {
+        setShapesInternal(prev => {
+            undoRedo.pushState(prev)
+            return updater(prev)
+        })
+    }, [undoRedo])
+
+    const setShapes: React.Dispatch<React.SetStateAction<Shape[]>> = useCallback((action) => {
+        if (typeof action === 'function') {
+            pushAndSet(action)
+        } else {
+            pushAndSet(() => action)
+        }
+    }, [pushAndSet])
+
     const addShape = useCallback((shape: Shape) => {
-        setShapes(prev => [...prev, shape])
-    }, [])
+        pushAndSet(prev => [...prev, shape])
+    }, [pushAndSet])
 
     const removeShape = useCallback((id: string) => {
-        setShapes(prev => prev.filter(s => s.id !== id))
-    }, [])
+        pushAndSet(prev => prev.filter(s => s.id !== id))
+    }, [pushAndSet])
 
     const updateShape = useCallback((id: string, updates: Partial<Shape>) => {
-        setShapes(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
-    }, [])
+        pushAndSet(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+    }, [pushAndSet])
 
     const clearShapesForImage = useCallback((imageIndex: number) => {
-        setShapes(prev => prev.filter(s => s.imageIndex !== imageIndex))
-    }, [])
+        pushAndSet(prev => prev.filter(s => s.imageIndex !== imageIndex))
+    }, [pushAndSet])
 
     const removeImage = useCallback((imageIndex: number) => {
         setImages(prev => prev.filter((_, i) => i !== imageIndex))
-        setShapes(prev => {
-            // Remove shapes for that image and decrement imageIndex for shapes after
-            return prev
+        pushAndSet(prev =>
+            prev
                 .filter(s => s.imageIndex !== imageIndex)
                 .map(s => s.imageIndex > imageIndex ? { ...s, imageIndex: s.imageIndex - 1 } : s)
-        })
+        )
         if (currentImageIndex >= imageIndex && currentImageIndex > 0) {
             setCurrentImageIndex(currentImageIndex - 1)
         }
-    }, [currentImageIndex])
+    }, [currentImageIndex, pushAndSet])
+
+    const undo = useCallback(() => {
+        const prev = undoRedo.undo(shapes)
+        if (prev) setShapesInternal(prev)
+    }, [undoRedo, shapes])
+
+    const redo = useCallback(() => {
+        const next = undoRedo.redo(shapes)
+        if (next) setShapesInternal(next)
+    }, [undoRedo, shapes])
+
+    // Global keyboard shortcuts for undo/redo
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                e.preventDefault()
+                if (e.shiftKey) {
+                    redo()
+                } else {
+                    undo()
+                }
+            }
+        }
+        window.addEventListener('keydown', handler)
+        return () => window.removeEventListener('keydown', handler)
+    }, [undo, redo])
 
     return (
         <AppContext.Provider value={{
@@ -193,7 +240,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             currentImageIndex, setCurrentImageIndex,
             shapes, setShapes,
             addShape, removeShape, updateShape, clearShapesForImage, removeImage,
-            calibrationData, setCalibrationData,
             regressionModels, setRegressionModels,
             committedPoints, setCommittedPoints,
             isGridView, setIsGridView,
@@ -205,6 +251,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             boundingBox, setBoundingBox,
             selectedShapeId, setSelectedShapeId,
             calibrationMode, setCalibrationMode,
+            colorCalibration, setColorCalibration,
+            undo, redo,
+            canUndo: undoRedo.canUndo,
+            canRedo: undoRedo.canRedo,
             clearCache, saveCache, isCacheLoaded
         }}>
             {children}

@@ -1,10 +1,33 @@
 import { useApp } from '@/context/AppContext'
-import { rgbToCmyk } from '@/lib/imageUtils'
+import { rgbToCmyk, rgbToHsl, rgbToHsv } from '@/lib/imageUtils'
+import { calibrateColor } from '@/lib/colorCalibration'
 
 export function ColorAnalysisPanel() {
-    const { shapes, currentImageIndex, colorMode } = useApp()
+    const { shapes, currentImageIndex, colorMode, rawRgbMode, colorCalibration } = useApp()
 
     const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
+
+    const getColor = (rgb: [number, number, number]) =>
+        rawRgbMode ? rgb : calibrateColor(rgb, colorCalibration)
+
+    const formatColor = (rgb: [number, number, number]) => {
+        const c = getColor(rgb)
+        switch (colorMode) {
+            case 'RGB': return `R:${c[0]} G:${c[1]} B:${c[2]}`
+            case 'CMYK': {
+                const cmyk = rgbToCmyk(c)
+                return `C:${(cmyk[0] * 100).toFixed(0)} M:${(cmyk[1] * 100).toFixed(0)} Y:${(cmyk[2] * 100).toFixed(0)} K:${(cmyk[3] * 100).toFixed(0)}`
+            }
+            case 'HSL': {
+                const hsl = rgbToHsl(c)
+                return `H:${hsl[0]} S:${hsl[1]}% L:${hsl[2]}%`
+            }
+            case 'HSV': {
+                const hsv = rgbToHsv(c)
+                return `H:${hsv[0]} S:${hsv[1]}% V:${hsv[2]}%`
+            }
+        }
+    }
 
     if (currentShapes.length === 0) {
         return (
@@ -14,15 +37,18 @@ export function ColorAnalysisPanel() {
         )
     }
 
-    // Calculate statistics
     const avgColor = currentShapes.reduce(
-        (acc, s) => [acc[0] + s.color[0], acc[1] + s.color[1], acc[2] + s.color[2]],
+        (acc, s) => {
+            const c = getColor(s.color)
+            return [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]]
+        },
         [0, 0, 0]
     ).map((v: number) => Math.round(v / currentShapes.length)) as [number, number, number]
 
-    const totalMagnitude = currentShapes.map(s =>
-        Math.sqrt(s.color[0] ** 2 + s.color[1] ** 2 + s.color[2] ** 2)
-    )
+    const totalMagnitude = currentShapes.map(s => {
+        const c = getColor(s.color)
+        return Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
+    })
     const avgMagnitude = totalMagnitude.reduce((a, b) => a + b, 0) / totalMagnitude.length
 
     return (
@@ -45,12 +71,7 @@ export function ColorAnalysisPanel() {
                         style={{ backgroundColor: `rgb(${avgColor[0]}, ${avgColor[1]}, ${avgColor[2]})` }}
                     />
                     <div className="text-xs">
-                        <div>Avg RGB: {avgColor.join(', ')}</div>
-                        {colorMode === 'CMYK' && (
-                            <div className="text-muted-foreground">
-                                CMYK: {rgbToCmyk(avgColor).map(v => (v * 100).toFixed(0)).join(', ')}
-                            </div>
-                        )}
+                        <div>Avg: {formatColor(avgColor)}</div>
                     </div>
                 </div>
             </div>
@@ -59,22 +80,24 @@ export function ColorAnalysisPanel() {
                 <h4 className="text-xs font-medium text-muted-foreground">Individual Values</h4>
                 <div className="max-h-48 overflow-y-auto space-y-1">
                     {currentShapes.map(shape => {
-                        const cmyk = rgbToCmyk(shape.color)
+                        const c = getColor(shape.color)
                         return (
                             <div key={shape.id} className="flex items-center gap-2 p-1.5 bg-muted/20 rounded text-xs">
                                 <div
                                     className="w-4 h-4 rounded flex-shrink-0"
-                                    style={{ backgroundColor: `rgb(${shape.color[0]}, ${shape.color[1]}, ${shape.color[2]})` }}
+                                    style={{ backgroundColor: `rgb(${c[0]}, ${c[1]}, ${c[2]})` }}
                                 />
                                 <span className="font-mono font-bold w-6">{shape.label}</span>
                                 <div className="flex-1 font-mono text-muted-foreground">
-                                    {colorMode === 'RGB'
-                                        ? `R:${shape.color[0]} G:${shape.color[1]} B:${shape.color[2]}`
-                                        : `C:${(cmyk[0] * 100).toFixed(0)} M:${(cmyk[1] * 100).toFixed(0)} Y:${(cmyk[2] * 100).toFixed(0)} K:${(cmyk[3] * 100).toFixed(0)}`
-                                    }
+                                    {formatColor(shape.color)}
+                                    {shape.colorStdDev && (
+                                        <span className="text-muted-foreground/50 ml-1">
+                                            &plusmn;{shape.colorStdDev[0]}
+                                        </span>
+                                    )}
                                 </div>
                                 <span className="text-muted-foreground">
-                                    Σ{Math.sqrt(shape.color[0] ** 2 + shape.color[1] ** 2 + shape.color[2] ** 2).toFixed(0)}
+                                    &Sigma;{Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2).toFixed(0)}
                                 </span>
                             </div>
                         )

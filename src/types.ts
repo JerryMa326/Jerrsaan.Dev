@@ -12,22 +12,9 @@ export interface Shape {
     height?: number
     radius?: number
     color: [number, number, number]
+    colorStdDev?: [number, number, number]
     imageIndex: number
     auto?: boolean
-}
-
-export interface CalibrationData {
-    red: [number, number, number] | null
-    green: [number, number, number] | null
-    blue: [number, number, number] | null
-    yellow: [number, number, number] | null
-    pink: [number, number, number] | null
-}
-
-export interface RegressionModel {
-    m: number
-    b: number
-    r2: number
 }
 
 export interface CommittedPoint {
@@ -59,12 +46,10 @@ export interface AppState {
     images: HTMLImageElement[]
     currentImageIndex: number
     shapes: Shape[]
-    calibrationData: CalibrationData
-    regressionModels: Record<string, RegressionModel>
     committedPoints: CommittedPoint[]
     isGridView: boolean
     detectionSettings: DetectionSettings
-    colorMode: 'RGB' | 'CMYK'
+    colorMode: 'RGB' | 'CMYK' | 'HSL' | 'HSV'
     rawRgbMode: boolean
     zoomLevel: number
     rotationAngle: number
