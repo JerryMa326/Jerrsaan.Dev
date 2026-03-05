@@ -51,19 +51,18 @@ function App() {
     const imageFiles = files.filter(f => f.type.startsWith('image/'))
     if (imageFiles.length === 0) return
 
-    const newImages: HTMLImageElement[] = []
-    let loadedCount = 0
-    imageFiles.forEach(file => {
-      const img = new Image()
-      img.src = URL.createObjectURL(file)
-      img.onload = () => {
-        newImages.push(img)
-        loadedCount++
-        if (loadedCount === imageFiles.length) {
-          setImages(prev => [...prev, ...newImages])
-          toast(`Loaded ${imageFiles.length} image${imageFiles.length > 1 ? 's' : ''}`, 'success')
-        }
-      }
+    Promise.all(
+      imageFiles.map(file => new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error(`Failed to load ${file.name}`))
+        img.src = URL.createObjectURL(file)
+      }))
+    ).then(newImages => {
+      setImages(prev => [...prev, ...newImages])
+      toast(`Loaded ${newImages.length} image${newImages.length > 1 ? 's' : ''}`, 'success')
+    }).catch(err => {
+      toast(err.message || 'Failed to load one or more images', 'error')
     })
   }, [setImages, toast])
 
@@ -273,10 +272,10 @@ function App() {
             onChange={handleFileChange}
           />
           {/* Undo/Redo */}
-          <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={undo} disabled={!canUndo} title="Undo (Cmd+Z)">
+          <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={undo} disabled={!canUndo} title="Undo (Cmd+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={redo} disabled={!canRedo} title="Redo (Cmd+Shift+Z)">
+          <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={redo} disabled={!canRedo} title="Redo (Cmd+Shift+Z)" aria-label="Redo">
             <Redo2 className="h-4 w-4" />
           </Button>
           {/* Help/Tutorial Button */}
@@ -371,13 +370,13 @@ function App() {
               {/* Toolbar - Responsive (Hide in Grid View) */}
               {!isGridView && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm px-1.5 md:px-2 py-1 rounded-lg">
-                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0}>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0} aria-label="Previous image">
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <span className="text-[10px] md:text-xs w-12 md:w-16 text-center">
                     {images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}
                   </span>
-                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1}>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1} aria-label="Next image">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                   <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
