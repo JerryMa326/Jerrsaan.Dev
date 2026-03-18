@@ -20,4 +20,4 @@ React, TypeScript, OpenCV.js, Chart.js, Tailwind CSS
 
 ## Live Demo
 
-`[DEMO_URL_PLACEHOLDER]`
+<https://jerrsaan.dev>

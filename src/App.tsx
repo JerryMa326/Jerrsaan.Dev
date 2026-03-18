@@ -15,6 +15,7 @@ import { ShapesList } from '@/components/features/ShapesList'
 import { ColorAnalysisPanel } from '@/components/features/ColorAnalysisPanel'
 import { Tutorial } from '@/components/features/Tutorial'
 import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/opencvUtils'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 
 function App() {
   const [activeTab, setActiveTab] = useState<'detect' | 'analyze'>('detect')
@@ -25,6 +26,7 @@ function App() {
   const [showTutorial, setShowTutorial] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [opencvReady, setOpencvReady] = useState(false)
+  const [opencvFailed, setOpencvFailed] = useState(false)
   const [confirmState, setConfirmState] = useState<{ open: boolean; message: string; onConfirm: () => void }>({ open: false, message: '', onConfirm: () => { } })
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
@@ -35,17 +37,23 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
-  // Poll for OpenCV readiness
+  // Poll for OpenCV readiness with timeout
   useEffect(() => {
     if (opencvReady) return
+    const start = Date.now()
     const interval = setInterval(() => {
       if (isOpenCVReady()) {
         setOpencvReady(true)
+        setOpencvFailed(false)
         clearInterval(interval)
+      } else if (Date.now() - start > 15000) {
+        setOpencvFailed(true)
+        clearInterval(interval)
+        toast('OpenCV failed to load — auto-detection is unavailable. Check your internet connection and reload.', 'error')
       }
     }, 500)
     return () => clearInterval(interval)
-  }, [opencvReady])
+  }, [opencvReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadImageFiles = useCallback((files: File[]) => {
     const imageFiles = files.filter(f => f.type.startsWith('image/'))
@@ -208,9 +216,11 @@ function App() {
             <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v4.0</span>
           </h1>
           {/* OpenCV Status */}
-          <div className="hidden sm:flex items-center ml-2" title={opencvReady ? 'OpenCV ready' : 'Loading OpenCV...'}>
+          <div className="hidden sm:flex items-center ml-2" title={opencvReady ? 'OpenCV ready' : opencvFailed ? 'OpenCV failed to load — auto-detection unavailable' : 'Loading OpenCV...'}>
             {opencvReady ? (
               <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+            ) : opencvFailed ? (
+              <X className="h-3.5 w-3.5 text-destructive" />
             ) : (
               <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
             )}
@@ -500,7 +510,7 @@ function App() {
                     </div>
                   </div>
                 ) : (
-                  <ImageViewer />
+                  <ErrorBoundary fallbackTitle="Image viewer crashed"><ImageViewer /></ErrorBoundary>
                 )
               ) : (
                 <div className="h-full w-full flex items-center justify-center pb-16 md:pb-0">
@@ -672,7 +682,7 @@ function App() {
             )}
           </>
         ) : (
-          <RegressionStudio />
+          <ErrorBoundary fallbackTitle="Regression studio crashed"><RegressionStudio /></ErrorBoundary>
         )}
       </main>
 
