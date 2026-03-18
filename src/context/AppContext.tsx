@@ -23,6 +23,7 @@ interface AppContextType extends AppState {
     updateShape: (id: string, updates: Partial<Shape>) => void
     clearShapesForImage: (imageIndex: number) => void
     removeImage: (imageIndex: number) => void
+    clearAllImages: () => void
     regressionModels: Record<string, RegressionModel>
     setRegressionModels: React.Dispatch<React.SetStateAction<Record<string, RegressionModel>>>
     setCommittedPoints: React.Dispatch<React.SetStateAction<CommittedPoint[]>>
@@ -208,6 +209,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
     }, [currentImageIndex, pushAndSet])
 
+    const clearAllImages = useCallback(() => {
+        setImages([])
+        pushAndSet(() => [])
+        setCurrentImageIndex(0)
+        setCommittedPoints([])
+        setRegressionModels({})
+        setBoundingBox(null)
+        setSelectedShapeId(null)
+    }, [pushAndSet])
+
     const undo = useCallback(() => {
         const prev = undoRedo.undo(shapes)
         if (prev) setShapesInternal(prev)
@@ -239,7 +250,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             images, setImages,
             currentImageIndex, setCurrentImageIndex,
             shapes, setShapes,
-            addShape, removeShape, updateShape, clearShapesForImage, removeImage,
+            addShape, removeShape, updateShape, clearShapesForImage, removeImage, clearAllImages,
             regressionModels, setRegressionModels,
             committedPoints, setCommittedPoints,
             isGridView, setIsGridView,

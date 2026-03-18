@@ -28,7 +28,7 @@ function App() {
   const [confirmState, setConfirmState] = useState<{ open: boolean; message: string; onConfirm: () => void }>({ open: false, message: '', onConfirm: () => { } })
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
-    removeImage, clearShapesForImage, isGridView, setIsGridView,
+    removeImage, clearAllImages, clearShapesForImage, isGridView, setIsGridView,
     shapes, setShapes, detectionSettings, boundingBox,
     undo, redo, canUndo, canRedo
   } = useApp()
@@ -333,6 +333,20 @@ function App() {
                 >
                   <Grid className="h-4 w-4" />
                 </Button>
+                {images.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => showConfirm(
+                      `Clear all ${images.length} image${images.length > 1 ? 's' : ''} and their shapes? This cannot be undone.`,
+                      clearAllImages
+                    )}
+                    title="Clear all images"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-2">
                 {images.map((img, idx) => (
@@ -569,16 +583,33 @@ function App() {
                 <div className="flex-1 overflow-y-auto">
                   {mobilePanel === 'images' && (
                     <div className="p-3">
-                      <Button
-                        className="w-full mb-3"
-                        variant="outline"
-                        onClick={() => {
-                          fileInputRef.current?.click()
-                          setMobilePanel('none')
-                        }}
-                      >
-                        <Plus className="h-4 w-4 mr-2" /> Add Images
-                      </Button>
+                      <div className="flex gap-2 mb-3">
+                        <Button
+                          className="flex-1"
+                          variant="outline"
+                          onClick={() => {
+                            fileInputRef.current?.click()
+                            setMobilePanel('none')
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-2" /> Add Images
+                        </Button>
+                        {images.length > 0 && (
+                          <Button
+                            variant="outline"
+                            className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                            onClick={() => showConfirm(
+                              `Clear all ${images.length} image${images.length > 1 ? 's' : ''} and their shapes? This cannot be undone.`,
+                              () => {
+                                clearAllImages()
+                                setMobilePanel('none')
+                              }
+                            )}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Clear All
+                          </Button>
+                        )}
+                      </div>
                       <div className="grid grid-cols-4 gap-2">
                         {images.map((img, idx) => (
                           <div
