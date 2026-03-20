@@ -200,9 +200,42 @@ export function hasCachedData(): boolean {
     return localStorage.getItem(STATE_KEY) !== null
 }
 
+// ============= Storage Estimation =============
+
+export async function estimateCacheSize(): Promise<{ used: number; quota: number } | null> {
+    try {
+        if (navigator.storage && navigator.storage.estimate) {
+            const estimate = await navigator.storage.estimate()
+            return { used: estimate.usage ?? 0, quota: estimate.quota ?? 0 }
+        }
+    } catch {
+        // Storage API not available
+    }
+    return null
+}
+
+export function formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
 // ============= Debounced Save Helper =============
 
+type SaveErrorCallback = (error: string) => void
+
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
+let _onSaveError: SaveErrorCallback | null = null
+
+export function setSaveErrorCallback(cb: SaveErrorCallback | null): void {
+    _onSaveError = cb
+}
+
+function reportSaveError(msg: string): void {
+    if (_onSaveError) _onSaveError(msg)
+}
 
 export function debouncedSaveState(
     images: HTMLImageElement[],
@@ -212,12 +245,20 @@ export function debouncedSaveState(
         clearTimeout(saveTimeout)
     }
 
-    saveTimeout = setTimeout(() => {
-        cacheAppState({ ...state, imageCount: images.length })
+    saveTimeout = setTimeout(async () => {
+        try {
+            cacheAppState({ ...state, imageCount: images.length })
+        } catch (e) {
+            reportSaveError(`Failed to save app state: ${e instanceof Error ? e.message : 'storage may be full'}`)
+        }
 
         const cachedState = loadCachedAppState()
         if (!cachedState || cachedState.imageCount !== images.length) {
-            cacheImages(images)
+            try {
+                await cacheImages(images)
+            } catch (e) {
+                reportSaveError(`Failed to cache images: ${e instanceof Error ? e.message : 'storage may be full'}`)
+            }
         }
     }, 500)
 }
@@ -229,6 +270,12 @@ export function forceSaveState(
     if (saveTimeout) {
         clearTimeout(saveTimeout)
     }
-    cacheAppState({ ...state, imageCount: images.length })
-    cacheImages(images)
+    try {
+        cacheAppState({ ...state, imageCount: images.length })
+    } catch (e) {
+        reportSaveError(`Failed to save app state: ${e instanceof Error ? e.message : 'storage may be full'}`)
+    }
+    cacheImages(images).catch(e => {
+        reportSaveError(`Failed to cache images: ${e instanceof Error ? e.message : 'storage may be full'}`)
+    })
 }

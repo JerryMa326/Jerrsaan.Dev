@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Circle, Square, Info, Crosshair, Trash2, Database, X } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useToast } from '@/components/ui/toast'
-import { hasCachedData } from '@/lib/cacheUtils'
+import { hasCachedData, estimateCacheSize, formatBytes } from '@/lib/cacheUtils'
 
 function Tooltip({ text }: { text: string }) {
     const [show, setShow] = useState(false)
@@ -68,9 +68,11 @@ export function SettingsPanel() {
 
     const [isClearing, setIsClearing] = useState(false)
     const [cacheExists, setCacheExists] = useState(false)
+    const [storageInfo, setStorageInfo] = useState<{ used: number; quota: number } | null>(null)
 
     useEffect(() => {
         setCacheExists(hasCachedData())
+        estimateCacheSize().then(info => setStorageInfo(info))
     }, [isCacheLoaded])
 
     const handleClearCache = async () => {
@@ -499,6 +501,26 @@ export function SettingsPanel() {
                             {cacheExists ? 'Cache active' : 'No cached data'}
                         </span>
                     </div>
+                    {storageInfo && storageInfo.quota > 0 && (
+                        <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] text-muted-foreground">
+                                <span>{formatBytes(storageInfo.used)} used</span>
+                                <span>{formatBytes(storageInfo.quota)} total</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                    className={`h-full rounded-full transition-all ${
+                                        storageInfo.used / storageInfo.quota > 0.9 ? 'bg-red-500' :
+                                        storageInfo.used / storageInfo.quota > 0.7 ? 'bg-yellow-500' : 'bg-green-500'
+                                    }`}
+                                    style={{ width: `${Math.min(100, (storageInfo.used / storageInfo.quota) * 100)}%` }}
+                                />
+                            </div>
+                            {storageInfo.used / storageInfo.quota > 0.9 && (
+                                <p className="text-[10px] text-red-400">Storage nearly full. Consider clearing cache.</p>
+                            )}
+                        </div>
+                    )}
                     <Button
                         size="sm"
                         variant="outline"

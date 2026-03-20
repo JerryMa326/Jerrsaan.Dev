@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle
+  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { useToast } from '@/components/ui/toast'
@@ -14,6 +14,7 @@ import { SettingsPanel } from '@/components/features/SettingsPanel'
 import { ShapesList } from '@/components/features/ShapesList'
 import { ColorAnalysisPanel } from '@/components/features/ColorAnalysisPanel'
 import { Tutorial } from '@/components/features/Tutorial'
+import { KeyboardShortcuts } from '@/components/features/KeyboardShortcuts'
 import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/opencvUtils'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
 
@@ -24,6 +25,7 @@ function App() {
   const [isDetecting, setIsDetecting] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'none' | 'images' | 'info' | 'settings'>('none')
   const [showTutorial, setShowTutorial] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [opencvReady, setOpencvReady] = useState(false)
   const [opencvFailed, setOpencvFailed] = useState(false)
@@ -32,10 +34,30 @@ function App() {
     images, setImages, setCurrentImageIndex, currentImageIndex,
     removeImage, clearAllImages, clearShapesForImage, isGridView, setIsGridView,
     shapes, setShapes, detectionSettings, boundingBox,
-    undo, redo, canUndo, canRedo
+    undo, redo, canUndo, canRedo,
+    lastSaveError, clearSaveError
   } = useApp()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
+
+  // Surface cache save errors
+  useEffect(() => {
+    if (lastSaveError) {
+      toast(lastSaveError, 'error')
+      clearSaveError()
+    }
+  }, [lastSaveError]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // '?' key opens keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        setShowShortcuts(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Poll for OpenCV readiness with timeout
   useEffect(() => {
@@ -213,7 +235,7 @@ function App() {
           <h1 className="text-xs md:text-sm font-semibold tracking-tight">
             <span className="hidden sm:inline">ChemClub Analyst</span>
             <span className="sm:hidden">ChemClub</span>
-            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v4.0</span>
+            <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v4.1</span>
           </h1>
           {/* OpenCV Status */}
           <div className="hidden sm:flex items-center ml-2" title={opencvReady ? 'OpenCV ready' : opencvFailed ? 'OpenCV failed to load — auto-detection unavailable' : 'Loading OpenCV...'}>
@@ -297,6 +319,16 @@ function App() {
             title="Guided Tutorial"
           >
             <HelpCircle className="h-4 w-4" />
+          </Button>
+          {/* Keyboard Shortcuts */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden md:flex h-8 w-8"
+            onClick={() => setShowShortcuts(true)}
+            title="Keyboard Shortcuts (?)"
+          >
+            <Keyboard className="h-4 w-4" />
           </Button>
           {/* Desktop Settings */}
           <Button
@@ -693,6 +725,9 @@ function App() {
 
       {/* Tutorial Overlay */}
       <Tutorial isOpen={showTutorial} onClose={() => setShowTutorial(false)} />
+
+      {/* Keyboard Shortcuts */}
+      <KeyboardShortcuts isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
       {/* Confirm Dialog */}
       <ConfirmDialog

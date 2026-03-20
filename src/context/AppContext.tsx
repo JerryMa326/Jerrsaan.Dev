@@ -11,7 +11,8 @@ import {
     debouncedSaveState,
     forceSaveState,
     clearAllCache,
-    hasCachedData
+    hasCachedData,
+    setSaveErrorCallback
 } from '../lib/cacheUtils'
 
 interface AppContextType extends AppState {
@@ -48,6 +49,8 @@ interface AppContextType extends AppState {
     clearCache: () => Promise<void>
     saveCache: () => void
     isCacheLoaded: boolean
+    lastSaveError: string | null
+    clearSaveError: () => void
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -69,9 +72,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [calibrationMode, setCalibrationMode] = useState<'none' | 'min' | 'max' | 'white' | 'black'>('none')
     const [colorCalibration, setColorCalibration] = useState<ColorCalibration>(defaultColorCalibration)
     const [isCacheLoaded, setIsCacheLoaded] = useState(false)
+    const [lastSaveError, setLastSaveError] = useState<string | null>(null)
 
     const undoRedo = useUndoRedo()
     const isInitializing = useRef(true)
+
+    // Register save error callback
+    useEffect(() => {
+        setSaveErrorCallback((msg) => setLastSaveError(msg))
+        return () => setSaveErrorCallback(null)
+    }, [])
 
     // Restore cached data on mount
     useEffect(() => {
@@ -266,7 +276,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             undo, redo,
             canUndo: undoRedo.canUndo,
             canRedo: undoRedo.canRedo,
-            clearCache, saveCache, isCacheLoaded
+            clearCache, saveCache, isCacheLoaded,
+            lastSaveError, clearSaveError: () => setLastSaveError(null)
         }}>
             {children}
         </AppContext.Provider>

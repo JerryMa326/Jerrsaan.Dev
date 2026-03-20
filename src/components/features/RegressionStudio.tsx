@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useApp } from '@/context/AppContext'
 import { useToast } from '@/components/ui/toast'
 import { Button } from '@/components/ui/button'
 import { Scatter } from 'react-chartjs-2'
 import { rgbToCmyk } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
-import { Download, Upload, FileSpreadsheet, Layers } from 'lucide-react'
+import { Download, Upload, FileSpreadsheet, Layers, ImageDown } from 'lucide-react'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
@@ -53,6 +53,7 @@ export function RegressionStudio() {
     const [modelType, setModelType] = useState<RegressionModelType | 'best'>('linear')
     const [overlayMode, setOverlayMode] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const chartsContainerRef = useRef<HTMLDivElement>(null)
 
     const getDisplayColor = (color: [number, number, number]): [number, number, number] => {
         if (rawRgbMode) return color
@@ -176,6 +177,46 @@ export function RegressionStudio() {
         URL.revokeObjectURL(url)
     }
 
+    const validateImportData = (data: unknown): { valid: boolean; error?: string; data?: ExportedModel } => {
+        if (!data || typeof data !== 'object') return { valid: false, error: 'File does not contain a valid JSON object' }
+
+        const d = data as Record<string, unknown>
+
+        if (d.committedPoints !== undefined) {
+            if (!Array.isArray(d.committedPoints)) return { valid: false, error: '"committedPoints" must be an array' }
+            for (const pt of d.committedPoints) {
+                if (typeof pt !== 'object' || pt === null) return { valid: false, error: 'Each committed point must be an object' }
+                const p = pt as Record<string, unknown>
+                if (typeof p.label !== 'string') return { valid: false, error: 'Each committed point must have a string "label"' }
+                if (typeof p.y !== 'number' || isNaN(p.y as number)) return { valid: false, error: `Committed point "${p.label}" has an invalid concentration value` }
+            }
+        }
+
+        if (d.regressionModels !== undefined) {
+            if (typeof d.regressionModels !== 'object' || d.regressionModels === null || Array.isArray(d.regressionModels)) {
+                return { valid: false, error: '"regressionModels" must be an object' }
+            }
+            const validTypes = ['linear', 'quadratic', 'power', 'logarithmic']
+            for (const [key, model] of Object.entries(d.regressionModels as Record<string, unknown>)) {
+                if (typeof model !== 'object' || model === null) return { valid: false, error: `Model "${key}" is not a valid object` }
+                const m = model as Record<string, unknown>
+                if ('type' in m && !validTypes.includes(m.type as string)) {
+                    return { valid: false, error: `Model "${key}" has invalid type "${m.type}". Expected: ${validTypes.join(', ')}` }
+                }
+                if (typeof m.r2 !== 'number') return { valid: false, error: `Model "${key}" is missing a numeric "r2" field` }
+            }
+        }
+
+        if (d.modelType !== undefined) {
+            const validModelTypes = ['linear', 'quadratic', 'power', 'logarithmic', 'best']
+            if (!validModelTypes.includes(d.modelType as string)) {
+                return { valid: false, error: `Invalid modelType "${d.modelType}"` }
+            }
+        }
+
+        return { valid: true, data: data as ExportedModel }
+    }
+
     const importModel = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
@@ -183,7 +224,15 @@ export function RegressionStudio() {
         const reader = new FileReader()
         reader.onload = (event) => {
             try {
-                const data: ExportedModel = JSON.parse(event.target?.result as string)
+                const raw = JSON.parse(event.target?.result as string)
+                const result = validateImportData(raw)
+
+                if (!result.valid || !result.data) {
+                    toast(`Import failed: ${result.error}`, 'error')
+                    return
+                }
+
+                const data = result.data
 
                 if (data.committedPoints) {
                     setCommittedPoints(data.committedPoints)
@@ -207,12 +256,61 @@ export function RegressionStudio() {
 
                 toast(`Imported model from ${data.exportDate || 'unknown date'} with ${data.committedPoints?.length || 0} data points`, 'success')
             } catch {
-                toast('Failed to import model: Invalid file format', 'error')
+                toast('Failed to import: file is not valid JSON', 'error')
             }
         }
         reader.readAsText(file)
         e.target.value = ''
     }
+
+    const exportChartsPNG = useCallback(() => {
+        const container = chartsContainerRef.current
+        if (!container) return
+
+        const canvases = container.querySelectorAll('canvas')
+        if (canvases.length === 0) {
+            toast('No charts to export', 'info')
+            return
+        }
+
+        // Combine all chart canvases into a single image
+        const padding = 16
+        const cols = Math.min(canvases.length, overlayMode ? 1 : 2)
+        const rows = Math.ceil(canvases.length / cols)
+        const cellW = canvases[0].width
+        const cellH = canvases[0].height
+        const totalW = cols * cellW + (cols + 1) * padding
+        const totalH = rows * cellH + (rows + 1) * padding + 40 // extra for title
+
+        const exportCanvas = document.createElement('canvas')
+        exportCanvas.width = totalW
+        exportCanvas.height = totalH
+        const ctx = exportCanvas.getContext('2d')
+        if (!ctx) return
+
+        ctx.fillStyle = '#0f0f0f'
+        ctx.fillRect(0, 0, totalW, totalH)
+
+        // Title
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 16px system-ui, sans-serif'
+        ctx.fillText('ChemClub Analyst — Regression Charts', padding, 28)
+
+        canvases.forEach((canvas, i) => {
+            const col = i % cols
+            const row = Math.floor(i / cols)
+            const x = padding + col * (cellW + padding)
+            const y = 40 + padding + row * (cellH + padding)
+            ctx.drawImage(canvas, x, y)
+        })
+
+        const url = exportCanvas.toDataURL('image/png')
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `chemclub-charts-${new Date().toISOString().slice(0, 10)}.png`
+        a.click()
+        toast('Charts exported as PNG', 'success')
+    }, [overlayMode, toast])
 
     const channelColors: Record<ColorChannel, string> = {
         red: '#ef4444',
@@ -434,6 +532,9 @@ export function RegressionStudio() {
                     <Button size="sm" variant="outline" onClick={exportCSV} disabled={shapes.length === 0}>
                         <FileSpreadsheet className="w-4 h-4 mr-1" /> CSV
                     </Button>
+                    <Button size="sm" variant="outline" onClick={exportChartsPNG} disabled={activeCharts.length === 0 || committedPoints.length < 2}>
+                        <ImageDown className="w-4 h-4 mr-1" /> PNG
+                    </Button>
                     <Button size="sm" onClick={runRegression} disabled={committedPoints.length < 2}>
                         Run Regression
                     </Button>
@@ -587,6 +688,7 @@ export function RegressionStudio() {
                     )}
 
                     {/* Charts */}
+                    <div ref={chartsContainerRef}>
                     {overlayMode ? (
                         <div className="bg-card border rounded-lg p-3">
                             <div className="flex items-center justify-between mb-2">
@@ -619,6 +721,7 @@ export function RegressionStudio() {
                             ))}
                         </div>
                     )}
+                    </div>
                 </div>
             </div>
         </div>
