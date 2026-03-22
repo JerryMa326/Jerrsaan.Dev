@@ -20,7 +20,9 @@ export function ImageViewer() {
     const containerRef = useRef<HTMLDivElement>(null)
 
     const calibrationModeRef = useRef(calibrationMode)
-    calibrationModeRef.current = calibrationMode
+    useEffect(() => {
+        calibrationModeRef.current = calibrationMode
+    }, [calibrationMode])
 
     const [offset, setOffset] = useState({ x: 0, y: 0 })
     const [isDragging, setIsDragging] = useState(false)
@@ -77,7 +79,7 @@ export function ImageViewer() {
 
         if (detectionSettings.claheEnabled && isOpenCVReady()) {
             try {
-                const cv = (window as any).cv
+                const cv = window.cv!
                 const src = cv.imread(canvas)
                 const gray = new cv.Mat()
                 cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
@@ -103,21 +105,24 @@ export function ImageViewer() {
         return img
     }, [currentImage, detectionSettings.brightness, detectionSettings.contrast,
         detectionSettings.claheEnabled, detectionSettings.claheClipLimit,
-        detectionSettings.sharpenEnabled, detectionSettings.sharpenAmount,
         hasPreprocessing, showPreprocessing])
 
-    const [lastDetectionMode, setLastDetectionMode] = useState(detectionSettings.mode)
+    const lastDetectionModeRef = useRef(detectionSettings.mode)
     useEffect(() => {
-        if (detectionSettings.mode !== lastDetectionMode) {
-            setLastDetectionMode(detectionSettings.mode)
-            if (drawingMode !== 'none' && drawingMode !== 'crop' && calibrationMode === 'none') {
-                setDrawingMode(detectionSettings.mode === 'circle' ? 'circle' : 'rectangle')
-            }
+        if (detectionSettings.mode === lastDetectionModeRef.current) return
+        lastDetectionModeRef.current = detectionSettings.mode
+        if (drawingMode !== 'none' && drawingMode !== 'crop' && calibrationMode === 'none') {
+            // Sync drawing tool when detection mode changes in settings
+            const nextMode = detectionSettings.mode === 'circle' ? 'circle' as const : 'rectangle' as const
+            queueMicrotask(() => setDrawingMode(nextMode))
         }
-    }, [detectionSettings.mode, lastDetectionMode, drawingMode, calibrationMode])
+    }, [detectionSettings.mode, drawingMode, calibrationMode])
 
+    const prevImageIndexRef = useRef(currentImageIndex)
     useEffect(() => {
-        setOffset({ x: 0, y: 0 })
+        if (currentImageIndex === prevImageIndexRef.current) return
+        prevImageIndexRef.current = currentImageIndex
+        queueMicrotask(() => setOffset({ x: 0, y: 0 }))
     }, [currentImageIndex])
 
     useEffect(() => {
@@ -296,16 +301,17 @@ export function ImageViewer() {
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage, calibrationMode])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage])
 
     useEffect(() => {
         draw()
     }, [draw])
 
     useEffect(() => {
-        if (preprocessedImage) {
-            preprocessedImage.onload = () => draw()
-        }
+        if (!preprocessedImage) return
+        const handler = () => draw()
+        preprocessedImage.addEventListener('load', handler)
+        return () => preprocessedImage.removeEventListener('load', handler)
     }, [preprocessedImage, draw])
 
     useEffect(() => {

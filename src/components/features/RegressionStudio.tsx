@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Scatter } from 'react-chartjs-2'
 import { rgbToCmyk } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
-import { Download, Upload, FileSpreadsheet, Layers, ImageDown } from 'lucide-react'
+import { Download, Upload, FileSpreadsheet, Layers, ImageDown, ClipboardCopy } from 'lucide-react'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
@@ -20,7 +20,10 @@ import {
     Title,
     Tooltip,
     Legend,
-    ScatterController
+    ScatterController,
+    type ChartDataset,
+    type TooltipItem,
+    type Plugin
 } from 'chart.js'
 
 ChartJS.register(
@@ -177,6 +180,29 @@ export function RegressionStudio() {
         URL.revokeObjectURL(url)
     }
 
+    const copyToClipboard = () => {
+        const headers = ['Label', 'R', 'G', 'B', 'Concentration', 'Predicted']
+        const rows = shapes.map(shape => {
+            const c = getDisplayColor(shape.color)
+            const committed = committedPoints.find(p => p.label === shape.label)
+            const magnitude = Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
+            const model = regressionModels.magnitude
+            const predicted = model ? predictFromModel(model, magnitude) : null
+            return [
+                shape.label,
+                c[0], c[1], c[2],
+                committed?.y ?? '',
+                predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : ''
+            ].join('\t')
+        })
+        const text = [headers.join('\t'), ...rows].join('\n')
+        navigator.clipboard.writeText(text).then(() => {
+            toast('Data copied to clipboard', 'success')
+        }).catch(() => {
+            toast('Failed to copy to clipboard', 'error')
+        })
+    }
+
     const validateImportData = (data: unknown): { valid: boolean; error?: string; data?: ExportedModel } => {
         if (!data || typeof data !== 'object') return { valid: false, error: 'File does not contain a valid JSON object' }
 
@@ -242,7 +268,7 @@ export function RegressionStudio() {
                     const migrated: Record<string, RegressionModel> = {}
                     for (const [key, model] of Object.entries(data.regressionModels)) {
                         if (!('type' in model)) {
-                            const legacy = model as any
+                            const legacy = model as unknown as { m: number; b: number; r2: number }
                             migrated[key] = { type: 'linear', m: legacy.m, b: legacy.b, r2: legacy.r2 }
                         } else {
                             migrated[key] = model
@@ -344,7 +370,7 @@ export function RegressionStudio() {
             }
         }).filter(Boolean) as { x: number; y: number; label: string; color: [number, number, number]; stdDev?: [number, number, number] }[]
 
-        const datasets: any[] = [{
+        const datasets: ChartDataset<'scatter'>[] = [{
             label: channel.charAt(0).toUpperCase() + channel.slice(1),
             data: dataPoints,
             borderColor: channelColors[channel],
@@ -384,7 +410,7 @@ export function RegressionStudio() {
     }
 
     const createOverlayChartData = () => {
-        const datasets: any[] = []
+        const datasets: ChartDataset<'scatter'>[] = []
 
         for (const channel of activeCharts) {
             const dataPoints = committedPoints.map(pt => {
@@ -432,15 +458,16 @@ export function RegressionStudio() {
     }
 
     // Error bars plugin
-    const errorBarPlugin = {
+    const errorBarPlugin: Plugin<'scatter'> = {
         id: 'errorBars',
-        afterDatasetsDraw(chart: any) {
+        afterDatasetsDraw(chart) {
             const ctx = chart.ctx
             const dataset = chart.data.datasets[0]
             if (!dataset) return
 
             const meta = chart.getDatasetMeta(0)
-            dataset.data.forEach((point: any, i: number) => {
+            const points = dataset.data as ({ x: number; y: number; stdDev?: [number, number, number] })[]
+            points.forEach((point, i: number) => {
                 if (!point.stdDev) return
                 const { x } = meta.data[i].getProps(['x', 'y'])
                 const channelIdx = activeCharts[0] === 'red' ? 0 : activeCharts[0] === 'green' ? 1 : 2
@@ -475,8 +502,8 @@ export function RegressionStudio() {
             legend: { display: overlayMode },
             tooltip: {
                 callbacks: {
-                    label: (context: any) => {
-                        const point = context.raw
+                    label: (context: TooltipItem<'scatter'>) => {
+                        const point = context.raw as { x: number; y: number; label?: string }
                         if (point.label) {
                             return [`Sample: ${point.label}`, `Conc: ${point.x}`, `Value: ${point.y.toFixed(2)}`]
                         }
@@ -531,6 +558,9 @@ export function RegressionStudio() {
                     </Button>
                     <Button size="sm" variant="outline" onClick={exportCSV} disabled={shapes.length === 0}>
                         <FileSpreadsheet className="w-4 h-4 mr-1" /> CSV
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={copyToClipboard} disabled={shapes.length === 0}>
+                        <ClipboardCopy className="w-4 h-4 mr-1" /> Copy
                     </Button>
                     <Button size="sm" variant="outline" onClick={exportChartsPNG} disabled={activeCharts.length === 0 || committedPoints.length < 2}>
                         <ImageDown className="w-4 h-4 mr-1" /> PNG
@@ -695,7 +725,7 @@ export function RegressionStudio() {
                                 <h4 className="text-xs font-semibold">All Channels Overlay</h4>
                             </div>
                             <div className="h-72">
-                                <Scatter options={chartOptions('magnitude') as any} data={createOverlayChartData()} />
+                                <Scatter options={chartOptions('magnitude')} data={createOverlayChartData()} />
                             </div>
                         </div>
                     ) : (
@@ -712,7 +742,7 @@ export function RegressionStudio() {
                                     </div>
                                     <div className="h-48">
                                         <Scatter
-                                            options={chartOptions(ch) as any}
+                                            options={chartOptions(ch)}
                                             data={createChartData(ch)}
                                             plugins={[errorBarPlugin]}
                                         />

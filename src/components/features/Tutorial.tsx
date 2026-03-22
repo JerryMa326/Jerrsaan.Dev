@@ -98,11 +98,10 @@ const steps: TutorialStep[] = [
 ]
 
 interface TutorialProps {
-    isOpen: boolean
     onClose: () => void
 }
 
-export function Tutorial({ isOpen, onClose }: TutorialProps) {
+export function Tutorial({ onClose }: TutorialProps) {
     const [currentStep, setCurrentStep] = useState(0)
     const [highlightRect, setHighlightRect] = useState<DOMRect | null>(null)
 
@@ -110,19 +109,9 @@ export function Tutorial({ isOpen, onClose }: TutorialProps) {
     const isFirst = currentStep === 0
     const isLast = currentStep === steps.length - 1
 
-    useEffect(() => {
-        if (!isOpen) {
-            setCurrentStep(0)
-            return
-        }
-    }, [isOpen])
-
     // Update highlight position
     useEffect(() => {
-        if (!isOpen || !step.highlight) {
-            setHighlightRect(null)
-            return
-        }
+        if (!step.highlight) return
 
         const update = () => {
             const el = document.querySelector(step.highlight!)
@@ -135,8 +124,9 @@ export function Tutorial({ isOpen, onClose }: TutorialProps) {
         return () => {
             clearTimeout(timer)
             window.removeEventListener('resize', update)
+            setHighlightRect(null)
         }
-    }, [isOpen, step.highlight, currentStep])
+    }, [step.highlight, currentStep])
 
     const handleNext = useCallback(() => {
         if (isLast) {
@@ -152,7 +142,6 @@ export function Tutorial({ isOpen, onClose }: TutorialProps) {
 
     // Keyboard navigation
     useEffect(() => {
-        if (!isOpen) return
         const handler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose()
             else if (e.key === 'ArrowRight' || e.key === 'Enter') handleNext()
@@ -160,9 +149,7 @@ export function Tutorial({ isOpen, onClose }: TutorialProps) {
         }
         window.addEventListener('keydown', handler)
         return () => window.removeEventListener('keydown', handler)
-    }, [isOpen, handleNext, handlePrev, onClose])
-
-    if (!isOpen) return null
+    }, [handleNext, handlePrev, onClose])
 
     // Compute modal position to avoid overlapping highlighted element
     const getModalStyle = (): React.CSSProperties => {

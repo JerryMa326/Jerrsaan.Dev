@@ -1,14 +1,8 @@
 import type { Shape, DetectionSettings } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
 
-declare global {
-    interface Window {
-        cv: any
-    }
-}
-
 export function isOpenCVReady(): boolean {
-    return typeof window.cv !== 'undefined' && window.cv.Mat !== undefined
+    return window.cv !== undefined && window.cv.Mat !== undefined
 }
 
 export async function waitForOpenCV(timeout = 10000): Promise<boolean> {
@@ -24,8 +18,8 @@ export async function waitForOpenCV(timeout = 10000): Promise<boolean> {
  * Apply preprocessing to an image before detection
  * This can dramatically improve detection on images with poor lighting or low contrast
  */
-function preprocessImage(mat: any, settings: DetectionSettings): void {
-    const cv = window.cv
+function preprocessImage(mat: OpenCVMat, settings: DetectionSettings): void {
+    const cv = window.cv!
 
     // Apply brightness and contrast adjustment
     // newPixel = contrast * oldPixel + brightness
@@ -63,7 +57,7 @@ export function autoDetectCircles(
         throw new Error('OpenCV is not loaded')
     }
 
-    const cv = window.cv
+    const cv = window.cv!
     const shapes: Shape[] = []
 
     // Create canvas from image
@@ -175,7 +169,7 @@ export function autoDetectRectangles(
         throw new Error('OpenCV is not loaded')
     }
 
-    const cv = window.cv
+    const cv = window.cv!
     const shapes: Shape[] = []
 
     const canvas = document.createElement('canvas')

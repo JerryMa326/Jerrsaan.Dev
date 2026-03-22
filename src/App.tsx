@@ -1,15 +1,15 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard
+  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard, RefreshCw
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ImageViewer } from '@/components/features/ImageViewer'
-import { RegressionStudio } from '@/components/features/RegressionStudio'
+const RegressionStudio = lazy(() => import('@/components/features/RegressionStudio').then(m => ({ default: m.RegressionStudio })))
 import { SettingsPanel } from '@/components/features/SettingsPanel'
 import { ShapesList } from '@/components/features/ShapesList'
 import { ColorAnalysisPanel } from '@/components/features/ColorAnalysisPanel'
@@ -62,6 +62,7 @@ function App() {
   // Poll for OpenCV readiness with timeout
   useEffect(() => {
     if (opencvReady) return
+    if (opencvFailed) return
     const start = Date.now()
     const interval = setInterval(() => {
       if (isOpenCVReady()) {
@@ -75,7 +76,19 @@ function App() {
       }
     }, 500)
     return () => clearInterval(interval)
-  }, [opencvReady]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opencvReady, opencvFailed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const retryOpenCV = () => {
+    const existing = document.querySelector('script[src*="opencv.js"]')
+    if (existing) existing.remove()
+    const script = document.createElement('script')
+    script.async = true
+    script.src = 'https://docs.opencv.org/4.x/opencv.js'
+    script.type = 'text/javascript'
+    document.head.appendChild(script)
+    setOpencvFailed(false)
+    setOpencvReady(false)
+  }
 
   const loadImageFiles = useCallback((files: File[]) => {
     const imageFiles = files.filter(f => f.type.startsWith('image/'))
@@ -238,11 +251,14 @@ function App() {
             <span className="text-[10px] md:text-xs font-normal text-muted-foreground ml-1">v4.1</span>
           </h1>
           {/* OpenCV Status */}
-          <div className="hidden sm:flex items-center ml-2" title={opencvReady ? 'OpenCV ready' : opencvFailed ? 'OpenCV failed to load — auto-detection unavailable' : 'Loading OpenCV...'}>
+          <div className="hidden sm:flex items-center ml-2" title={opencvReady ? 'OpenCV ready' : opencvFailed ? 'OpenCV failed to load — click to retry' : 'Loading OpenCV...'}>
             {opencvReady ? (
               <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
             ) : opencvFailed ? (
-              <X className="h-3.5 w-3.5 text-destructive" />
+              <button onClick={retryOpenCV} className="flex items-center gap-1 text-destructive hover:text-destructive/80 transition-colors" aria-label="Retry loading OpenCV">
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span className="text-[10px]">Retry</span>
+              </button>
             ) : (
               <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
             )}
@@ -714,7 +730,15 @@ function App() {
             )}
           </>
         ) : (
-          <ErrorBoundary fallbackTitle="Regression studio crashed"><RegressionStudio /></ErrorBoundary>
+          <ErrorBoundary fallbackTitle="Regression studio crashed">
+            <Suspense fallback={
+              <div className="h-full w-full flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }>
+              <RegressionStudio />
+            </Suspense>
+          </ErrorBoundary>
         )}
       </main>
 
@@ -724,7 +748,7 @@ function App() {
       </footer>
 
       {/* Tutorial Overlay */}
-      <Tutorial isOpen={showTutorial} onClose={() => setShowTutorial(false)} />
+      {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
 
       {/* Keyboard Shortcuts */}
       <KeyboardShortcuts isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
