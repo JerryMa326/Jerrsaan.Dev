@@ -17,6 +17,8 @@ import { Tutorial } from '@/components/features/Tutorial'
 import { KeyboardShortcuts } from '@/components/features/KeyboardShortcuts'
 import { isOpenCVReady, autoDetectCircles, autoDetectRectangles } from '@/lib/opencvUtils'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
+import { useServiceWorker } from '@/hooks/useServiceWorker'
+import { PWAStatus } from '@/components/ui/pwa-status'
 
 function App() {
   const [activeTab, setActiveTab] = useState<'detect' | 'analyze'>('detect')
@@ -30,6 +32,7 @@ function App() {
   const [opencvReady, setOpencvReady] = useState(false)
   const [opencvFailed, setOpencvFailed] = useState(false)
   const [confirmState, setConfirmState] = useState<{ open: boolean; message: string; onConfirm: () => void }>({ open: false, message: '', onConfirm: () => { } })
+  const { isOffline, hasUpdate, dismissUpdate } = useServiceWorker()
   const {
     images, setImages, setCurrentImageIndex, currentImageIndex,
     removeImage, clearAllImages, clearShapesForImage, isGridView, setIsGridView,
@@ -232,6 +235,9 @@ function App() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* PWA status banners */}
+      <PWAStatus isOffline={isOffline} hasUpdate={hasUpdate} onDismissUpdate={dismissUpdate} />
+
       {/* Drag overlay */}
       {isDragOver && (
         <div className="fixed inset-0 z-[9998] bg-primary/10 border-4 border-dashed border-primary pointer-events-none flex items-center justify-center">
