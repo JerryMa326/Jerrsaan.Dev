@@ -28,6 +28,15 @@ const groups: ShortcutGroup[] = [
         ]
     },
     {
+        title: 'Data Table',
+        shortcuts: [
+            { keys: ['Tab'], description: 'Next concentration cell' },
+            { keys: ['Shift', 'Tab'], description: 'Previous cell' },
+            { keys: ['\u2191', '\u2193'], description: 'Navigate rows' },
+            { keys: [mod, 'V'], description: 'Paste multi-row data' },
+        ]
+    },
+    {
         title: 'Touch Gestures',
         shortcuts: [
             { keys: ['Pinch'], description: 'Zoom in/out' },

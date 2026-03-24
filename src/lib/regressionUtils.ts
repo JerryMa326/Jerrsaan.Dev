@@ -179,6 +179,48 @@ export function predict(model: RegressionModel, colorValue: number): number | nu
     }
 }
 
+export function computeRSE(model: RegressionModel, xs: number[], actuals: number[]): number {
+    const n = xs.length
+    const p = model.type === 'quadratic' ? 3 : 2
+    if (n <= p) return Infinity
+    const ssRes = actuals.reduce((acc, y, i) => acc + (y - evaluateModel(model, xs[i])) ** 2, 0)
+    return Math.sqrt(ssRes / (n - p))
+}
+
+export interface ResidualPoint {
+    label: string
+    concentration: number
+    observed: number
+    predicted: number
+    residual: number
+    standardizedResidual: number
+}
+
+export function computeResiduals(
+    model: RegressionModel,
+    points: { label: string; x: number; y: number }[]
+): ResidualPoint[] {
+    const n = points.length
+    const p = model.type === 'quadratic' ? 3 : 2
+    const residuals = points.map(pt => ({
+        label: pt.label,
+        concentration: pt.x,
+        observed: pt.y,
+        predicted: evaluateModel(model, pt.x),
+        residual: pt.y - evaluateModel(model, pt.x),
+        standardizedResidual: 0
+    }))
+
+    const ssRes = residuals.reduce((acc, r) => acc + r.residual ** 2, 0)
+    const rse = n > p ? Math.sqrt(ssRes / (n - p)) : 1
+
+    for (const r of residuals) {
+        r.standardizedResidual = rse > 0 ? r.residual / rse : 0
+    }
+
+    return residuals
+}
+
 export function formatEquation(model: RegressionModel): string {
     switch (model.type) {
         case 'linear':

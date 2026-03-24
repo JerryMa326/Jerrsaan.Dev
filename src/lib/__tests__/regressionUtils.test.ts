@@ -8,6 +8,8 @@ import {
     evaluateModel,
     predict,
     formatEquation,
+    computeRSE,
+    computeResiduals,
 } from '@/lib/regressionUtils'
 import type { LinearModel, QuadraticModel, PowerModel, LogarithmicModel } from '@/lib/regressionUtils'
 
@@ -299,5 +301,73 @@ describe('formatEquation', () => {
         const eq = formatEquation(model)
         expect(eq).toContain('ln(x)')
         expect(eq).toBe('y = 3.14\u00B7ln(x) + 2.7')
+    })
+})
+
+// ─── computeRSE ─────────────────────────────────────────────────────────────────
+
+describe('computeRSE', () => {
+    it('returns 0 for a perfect linear fit', () => {
+        const model: LinearModel = { type: 'linear', m: 2, b: 1, r2: 1 }
+        expect(computeRSE(model, [1, 2, 3], [3, 5, 7])).toBeCloseTo(0)
+    })
+
+    it('returns Infinity when n <= p', () => {
+        const model: LinearModel = { type: 'linear', m: 2, b: 1, r2: 1 }
+        expect(computeRSE(model, [1], [3])).toBe(Infinity)
+    })
+
+    it('returns positive value for imperfect fit', () => {
+        const model: LinearModel = { type: 'linear', m: 1, b: 0, r2: 0.9 }
+        const rse = computeRSE(model, [1, 2, 3, 4], [1.1, 1.9, 3.2, 3.8])
+        expect(rse).toBeGreaterThan(0)
+        expect(rse).toBeLessThan(1)
+    })
+})
+
+// ─── computeResiduals ───────────────────────────────────────────────────────────
+
+describe('computeResiduals', () => {
+    it('computes zero residuals for a perfect fit', () => {
+        const model: LinearModel = { type: 'linear', m: 2, b: 1, r2: 1 }
+        const points = [
+            { label: 'a', x: 1, y: 3 },
+            { label: 'b', x: 2, y: 5 },
+            { label: 'c', x: 3, y: 7 }
+        ]
+        const result = computeResiduals(model, points)
+        expect(result).toHaveLength(3)
+        result.forEach(r => {
+            expect(r.residual).toBeCloseTo(0)
+            expect(r.standardizedResidual).toBeCloseTo(0)
+        })
+    })
+
+    it('flags an outlier with |stdResidual| > 2', () => {
+        const model: LinearModel = { type: 'linear', m: 1, b: 0, r2: 0.9 }
+        const points = [
+            { label: 'a', x: 1, y: 1 },
+            { label: 'b', x: 2, y: 2 },
+            { label: 'c', x: 3, y: 3 },
+            { label: 'd', x: 4, y: 4 },
+            { label: 'e', x: 5, y: 5 },
+            { label: 'f', x: 6, y: 6 },
+            { label: 'g', x: 7, y: 50 }
+        ]
+        const result = computeResiduals(model, points)
+        const outlier = result.find(r => r.label === 'g')!
+        expect(Math.abs(outlier.standardizedResidual)).toBeGreaterThan(2)
+    })
+
+    it('returns correct structure', () => {
+        const model: LinearModel = { type: 'linear', m: 1, b: 0, r2: 1 }
+        const points = [{ label: 'a', x: 1, y: 1.5 }, { label: 'b', x: 2, y: 2 }, { label: 'c', x: 3, y: 3 }]
+        const result = computeResiduals(model, points)
+        expect(result[0]).toHaveProperty('label')
+        expect(result[0]).toHaveProperty('concentration')
+        expect(result[0]).toHaveProperty('observed')
+        expect(result[0]).toHaveProperty('predicted')
+        expect(result[0]).toHaveProperty('residual')
+        expect(result[0]).toHaveProperty('standardizedResidual')
     })
 })

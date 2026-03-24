@@ -1,15 +1,17 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useApp } from '@/context/AppContext'
 import { useToast } from '@/components/ui/toast'
 import { Button } from '@/components/ui/button'
 import { Scatter } from 'react-chartjs-2'
 import { rgbToCmyk } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
-import { Download, Upload, FileSpreadsheet, Layers, ImageDown, ClipboardCopy } from 'lucide-react'
+import { Download, Upload, FileSpreadsheet, Layers, ImageDown, ClipboardCopy, Loader2, X } from 'lucide-react'
+import type { Shape, CommittedPoint } from '@/types'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
-    type RegressionModel, type RegressionModelType
+    computeRSE, computeResiduals,
+    type RegressionModel, type RegressionModelType, type ResidualPoint
 } from '@/lib/regressionUtils'
 import {
     Chart as ChartJS,
@@ -39,6 +41,142 @@ ChartJS.register(
 
 type ColorChannel = 'red' | 'green' | 'blue' | 'cyan' | 'magenta' | 'yellow' | 'black' | 'magnitude'
 
+const ALL_CHANNELS: ColorChannel[] = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'black', 'magnitude']
+
+function computeAllModels(
+    shapes: Shape[],
+    committedPoints: CommittedPoint[],
+    modelType: RegressionModelType | 'best',
+    getColorValue: (color: [number, number, number], ch: ColorChannel) => number,
+    excludedLabels?: Set<string>
+): Record<string, RegressionModel> | null {
+    const points = committedPoints
+        .filter(pt => !excludedLabels?.has(pt.label))
+        .map(pt => {
+            const shape = shapes.find(s => s.label === pt.label)
+            if (!shape) return null
+            return { concentration: pt.y, color: shape.color, label: pt.label }
+        })
+        .filter(Boolean) as { concentration: number; color: [number, number, number]; label: string }[]
+
+    if (points.length < 2) return null
+
+    const newModels: Record<string, RegressionModel> = {}
+    ALL_CHANNELS.forEach(channel => {
+        const xs = points.map(pt => pt.concentration)
+        const ys = points.map(pt => getColorValue(pt.color, channel))
+
+        let model: RegressionModel | null = null
+        switch (modelType) {
+            case 'linear': model = fitLinear(xs, ys); break
+            case 'quadratic': model = fitQuadratic(xs, ys); break
+            case 'power': model = fitPower(xs, ys); break
+            case 'logarithmic': model = fitLogarithmic(xs, ys); break
+            case 'best': model = fitBest(xs, ys); break
+        }
+        if (model) newModels[channel] = model
+    })
+
+    return newModels
+}
+
+function DilutionSeriesModal({ shapes, onApply, onClose }: {
+    shapes: Shape[]
+    onApply: (points: CommittedPoint[]) => void
+    onClose: () => void
+}) {
+    const [startConc, setStartConc] = useState(100)
+    const [factor, setFactor] = useState(2)
+    const [count, setCount] = useState(Math.min(shapes.length, 6))
+    const [direction, setDirection] = useState<'high-to-low' | 'low-to-high'>('high-to-low')
+    const [preset, setPreset] = useState<'2x' | '5x' | '10x' | 'custom'>('2x')
+
+    const handlePresetChange = (p: typeof preset) => {
+        setPreset(p)
+        if (p === '2x') setFactor(2)
+        else if (p === '5x') setFactor(5)
+        else if (p === '10x') setFactor(10)
+    }
+
+    const sortedLabels = shapes.map(s => s.label)
+
+    const preview = (() => {
+        const values: number[] = []
+        for (let i = 0; i < count; i++) {
+            values.push(startConc / Math.pow(factor, i))
+        }
+        if (direction === 'low-to-high') values.reverse()
+        return sortedLabels.slice(0, count).map((label, i) => ({ label, y: values[i] }))
+    })()
+
+    return (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-card border rounded-xl shadow-2xl max-w-sm w-full mx-4 p-4 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Dilution Series</h3>
+                    <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-xs text-muted-foreground">Starting Concentration</label>
+                        <input type="number" step="any" value={startConc} onChange={e => setStartConc(parseFloat(e.target.value) || 0)}
+                            className="w-full bg-background border rounded px-2 py-1 text-sm mt-1" />
+                    </div>
+                    <div>
+                        <label className="text-xs text-muted-foreground">Dilution Factor</label>
+                        <div className="flex gap-1 mt-1">
+                            {(['2x', '5x', '10x', 'custom'] as const).map(p => (
+                                <button key={p} onClick={() => handlePresetChange(p)}
+                                    className={`px-2 py-1 text-xs rounded ${preset === p ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {preset === 'custom' && (
+                        <div>
+                            <label className="text-xs text-muted-foreground">Custom Factor</label>
+                            <input type="number" step="any" value={factor} onChange={e => setFactor(parseFloat(e.target.value) || 2)}
+                                className="w-full bg-background border rounded px-2 py-1 text-sm mt-1" />
+                        </div>
+                    )}
+                    <div>
+                        <label className="text-xs text-muted-foreground">Standards ({count})</label>
+                        <input type="range" min={1} max={shapes.length} value={count} onChange={e => setCount(parseInt(e.target.value))}
+                            className="w-full mt-1" />
+                    </div>
+                    <div>
+                        <label className="text-xs text-muted-foreground">Direction</label>
+                        <div className="flex gap-1 mt-1">
+                            {(['high-to-low', 'low-to-high'] as const).map(d => (
+                                <button key={d} onClick={() => setDirection(d)}
+                                    className={`px-2 py-1 text-xs rounded flex-1 ${direction === d ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                                    {d === 'high-to-low' ? 'High \u2192 Low' : 'Low \u2192 High'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+                <div className="border rounded p-2 bg-muted/30 max-h-32 overflow-y-auto">
+                    <div className="text-[10px] text-muted-foreground mb-1">Preview:</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs font-mono">
+                        {preview.map(p => (
+                            <div key={p.label} className="flex justify-between">
+                                <span className="font-bold">{p.label}</span>
+                                <span>{p.y.toFixed(3)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+                    <Button size="sm" className="flex-1" onClick={() => { onApply(preview); onClose() }}>Apply</Button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 interface ExportedModel {
     version: string
     exportDate: string
@@ -57,6 +195,88 @@ export function RegressionStudio() {
     const [overlayMode, setOverlayMode] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const chartsContainerRef = useRef<HTMLDivElement>(null)
+    const inputRefsMap = useRef<Map<string, HTMLInputElement>>(new Map())
+    const [focusedLabel, setFocusedLabel] = useState<string | null>(null)
+    const [showDilutionModal, setShowDilutionModal] = useState(false)
+    const [predictionChannel, setPredictionChannel] = useState<ColorChannel | 'auto'>('auto')
+    const [excludedPoints, setExcludedPoints] = useState<Set<string>>(new Set())
+    const [showResiduals, setShowResiduals] = useState(false)
+
+    const effectivePredChannel: ColorChannel = useMemo(() => {
+        if (predictionChannel !== 'auto') return predictionChannel
+        let bestCh: ColorChannel = 'magnitude'
+        let bestR2 = -1
+        for (const [ch, model] of Object.entries(regressionModels)) {
+            if (model.r2 > bestR2) { bestR2 = model.r2; bestCh = ch as ColorChannel }
+        }
+        return bestCh
+    }, [predictionChannel, regressionModels])
+
+    const rseValue = (() => {
+        const model = regressionModels[effectivePredChannel]
+        if (!model) return null
+        const points = committedPoints
+            .filter(pt => !excludedPoints.has(pt.label))
+            .map(pt => {
+                const shape = shapes.find(s => s.label === pt.label)
+                if (!shape) return null
+                return { x: pt.y, y: getColorValue(shape.color, effectivePredChannel) }
+            })
+            .filter(Boolean) as { x: number; y: number }[]
+        if (points.length < 3) return null
+        return computeRSE(model, points.map(p => p.x), points.map(p => p.y))
+    })()
+
+    const residualsData = (() => {
+        const results: Record<string, ResidualPoint[]> = {}
+        for (const ch of activeCharts) {
+            const model = regressionModels[ch]
+            if (!model) continue
+            const points = committedPoints
+                .filter(pt => !excludedPoints.has(pt.label))
+                .map(pt => {
+                    const shape = shapes.find(s => s.label === pt.label)
+                    if (!shape) return null
+                    return { label: pt.label, x: pt.y, y: getColorValue(shape.color, ch as ColorChannel) }
+                })
+                .filter(Boolean) as { label: string; x: number; y: number }[]
+            if (points.length >= 2) results[ch] = computeResiduals(model, points)
+        }
+        return results
+    })()
+
+    const shapeLabels = shapes.map(s => s.label)
+
+    const handleInputKeyDown = (e: React.KeyboardEvent, currentLabel: string) => {
+        const idx = shapeLabels.indexOf(currentLabel)
+        let targetIdx: number | null = null
+
+        if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowDown') {
+            e.preventDefault()
+            targetIdx = idx + 1
+        } else if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowUp') {
+            e.preventDefault()
+            targetIdx = idx - 1
+        }
+
+        if (targetIdx !== null && targetIdx >= 0 && targetIdx < shapeLabels.length) {
+            inputRefsMap.current.get(shapeLabels[targetIdx])?.focus()
+        }
+    }
+
+    const handlePaste = (e: React.ClipboardEvent, currentLabel: string) => {
+        const text = e.clipboardData.getData('text/plain')
+        if (!text.includes('\t') && !text.includes('\n')) return
+        e.preventDefault()
+        const values = text.split(/[\t\n\r]+/).map(v => v.trim()).filter(v => v !== '')
+        const startIdx = shapeLabels.indexOf(currentLabel)
+        values.forEach((val, i) => {
+            const targetIdx = startIdx + i
+            if (targetIdx < shapeLabels.length) {
+                handleConcentrationChange(shapeLabels[targetIdx], val)
+            }
+        })
+    }
 
     const getDisplayColor = (color: [number, number, number]): [number, number, number] => {
         if (rawRgbMode) return color
@@ -97,37 +317,36 @@ export function RegressionStudio() {
         }
     }
 
-    const runRegression = () => {
-        const points = committedPoints.map(pt => {
-            const shape = shapes.find(s => s.label === pt.label)
-            if (!shape) return null
-            return { concentration: pt.y, color: shape.color, label: pt.label }
-        }).filter(Boolean) as { concentration: number; color: [number, number, number]; label: string }[]
+    const [isAutoFitting, setIsAutoFitting] = useState(false)
+    const autoFitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-        if (points.length < 2) {
+    // Auto-fit regression as concentrations are entered (300ms debounce)
+    useEffect(() => {
+        if (autoFitTimerRef.current) clearTimeout(autoFitTimerRef.current)
+
+        const validPoints = committedPoints.filter(pt => shapes.some(s => s.label === pt.label))
+        if (validPoints.length < 2) return
+
+        autoFitTimerRef.current = setTimeout(() => {
+            setIsAutoFitting(true)
+            queueMicrotask(() => {
+                const newModels = computeAllModels(shapes, committedPoints, modelType, getColorValue, excludedPoints)
+                if (newModels) setRegressionModels(newModels)
+                setIsAutoFitting(false)
+            })
+        }, 300)
+
+        return () => {
+            if (autoFitTimerRef.current) clearTimeout(autoFitTimerRef.current)
+        }
+    }, [committedPoints, shapes, modelType, excludedPoints]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const runRegression = () => {
+        const newModels = computeAllModels(shapes, committedPoints, modelType, getColorValue, excludedPoints)
+        if (!newModels) {
             toast('Need at least 2 data points with known concentrations', 'error')
             return
         }
-
-        const channels: ColorChannel[] = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'black', 'magnitude']
-        const newModels: Record<string, RegressionModel> = {}
-
-        channels.forEach(channel => {
-            const xs = points.map(pt => pt.concentration)
-            const ys = points.map(pt => getColorValue(pt.color, channel))
-
-            let model: RegressionModel | null = null
-            switch (modelType) {
-                case 'linear': model = fitLinear(xs, ys); break
-                case 'quadratic': model = fitQuadratic(xs, ys); break
-                case 'power': model = fitPower(xs, ys); break
-                case 'logarithmic': model = fitLogarithmic(xs, ys); break
-                case 'best': model = fitBest(xs, ys); break
-            }
-
-            if (model) newModels[channel] = model
-        })
-
         setRegressionModels(newModels)
         toast('Regression complete', 'success')
     }
@@ -152,16 +371,18 @@ export function RegressionStudio() {
     }
 
     const exportCSV = () => {
-        const headers = ['Label', 'R', 'G', 'B', 'C', 'M', 'Y', 'K', 'Magnitude', 'Concentration', 'Predicted']
+        const headers = ['Label', 'Type', 'R', 'G', 'B', 'C', 'M', 'Y', 'K', 'Magnitude', 'Concentration', 'Predicted']
         const rows = shapes.map(shape => {
             const c = getDisplayColor(shape.color)
             const cmyk = rgbToCmyk(c)
             const mag = Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
             const committed = committedPoints.find(p => p.label === shape.label)
-            const model = regressionModels.magnitude
-            const predicted = model ? predictFromModel(model, mag) : null
+            const channelVal = getColorValue(shape.color, effectivePredChannel)
+            const model = regressionModels[effectivePredChannel]
+            const predicted = model ? predictFromModel(model, channelVal) : null
             return [
                 shape.label,
+                committed ? 'standard' : 'unknown',
                 c[0], c[1], c[2],
                 (cmyk[0] * 100).toFixed(1), (cmyk[1] * 100).toFixed(1), (cmyk[2] * 100).toFixed(1), (cmyk[3] * 100).toFixed(1),
                 mag.toFixed(2),
@@ -181,15 +402,16 @@ export function RegressionStudio() {
     }
 
     const copyToClipboard = () => {
-        const headers = ['Label', 'R', 'G', 'B', 'Concentration', 'Predicted']
+        const headers = ['Label', 'Type', 'R', 'G', 'B', 'Concentration', 'Predicted']
         const rows = shapes.map(shape => {
             const c = getDisplayColor(shape.color)
             const committed = committedPoints.find(p => p.label === shape.label)
-            const magnitude = Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
-            const model = regressionModels.magnitude
-            const predicted = model ? predictFromModel(model, magnitude) : null
+            const channelVal = getColorValue(shape.color, effectivePredChannel)
+            const model = regressionModels[effectivePredChannel]
+            const predicted = model ? predictFromModel(model, channelVal) : null
             return [
                 shape.label,
+                committed ? 'standard' : 'unknown',
                 c[0], c[1], c[2],
                 committed?.y ?? '',
                 predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : ''
@@ -588,6 +810,29 @@ export function RegressionStudio() {
                 ))}
             </div>
 
+            {/* Prediction Channel Selector */}
+            <div className="flex flex-wrap gap-1.5 p-2 bg-card rounded-lg border items-center">
+                <span className="text-xs text-muted-foreground mr-2">Predict from:</span>
+                <select
+                    value={predictionChannel}
+                    onChange={e => setPredictionChannel(e.target.value as ColorChannel | 'auto')}
+                    className="bg-background border rounded px-2 py-1 text-xs"
+                >
+                    <option value="auto">Auto (Best R²)</option>
+                    {ALL_CHANNELS.map(ch => (
+                        <option key={ch} value={ch}>
+                            {ch.charAt(0).toUpperCase() + ch.slice(1)}
+                            {regressionModels[ch] ? ` (R²=${regressionModels[ch].r2.toFixed(3)})` : ''}
+                        </option>
+                    ))}
+                </select>
+                {predictionChannel === 'auto' && regressionModels[effectivePredChannel] && (
+                    <span className="text-xs text-muted-foreground">
+                        Using: {effectivePredChannel} (R²={regressionModels[effectivePredChannel].r2.toFixed(3)})
+                    </span>
+                )}
+            </div>
+
             {/* Channel Toggle + Overlay */}
             <div className="flex flex-wrap gap-1.5 p-2 bg-card rounded-lg border items-center">
                 <span className="text-xs text-muted-foreground mr-2 self-center">Charts:</span>
@@ -602,6 +847,9 @@ export function RegressionStudio() {
                         style={{ backgroundColor: activeCharts.includes(ch) ? channelColors[ch] : undefined }}
                     >
                         {ch.charAt(0).toUpperCase() + ch.slice(1)}
+                        {regressionModels[ch] && (
+                            <span className="ml-1 text-[9px] opacity-70">{regressionModels[ch].r2.toFixed(2)}</span>
+                        )}
                     </button>
                 ))}
                 <div className="w-px h-5 bg-muted-foreground/30 mx-1" />
@@ -612,6 +860,14 @@ export function RegressionStudio() {
                 >
                     <Layers className="h-3 w-3" /> Overlay
                 </button>
+                <button
+                    onClick={() => setShowResiduals(!showResiduals)}
+                    className={`px-2 py-1 text-xs rounded transition-all flex items-center gap-1 ${showResiduals ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
+                    title="Show residual plots"
+                >
+                    Residuals
+                </button>
+                {isAutoFitting && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-1" />}
             </div>
 
             {/* Selected Point Info */}
@@ -638,7 +894,17 @@ export function RegressionStudio() {
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
                 {/* Data Table */}
                 <div className="xl:col-span-1 border rounded-lg overflow-hidden bg-card">
-                    <div className="p-2 bg-muted/50 border-b text-xs font-semibold">Data Points</div>
+                    <div className="p-2 bg-muted/50 border-b text-xs font-semibold flex items-center justify-between">
+                        <span>Data Points</span>
+                        <div className="flex gap-1">
+                            <button onClick={() => setShowDilutionModal(true)} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20" title="Fill dilution series">
+                                Fill Series
+                            </button>
+                            <button onClick={() => setCommittedPoints([])} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 text-destructive" title="Clear all concentrations" disabled={committedPoints.length === 0}>
+                                Clear
+                            </button>
+                        </div>
+                    </div>
                     <div className="max-h-80 overflow-y-auto">
                         <table className="w-full text-xs">
                             <thead className="bg-muted/30 sticky top-0">
@@ -647,25 +913,36 @@ export function RegressionStudio() {
                                     <th className="p-1.5 text-left">RGB</th>
                                     <th className="p-1.5 text-left">Conc.</th>
                                     <th className="p-1.5 text-left">Pred.</th>
+                                    <th className="p-1 w-6"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {shapes.map(shape => {
                                     const committed = committedPoints.find(p => p.label === shape.label)
                                     const c = getDisplayColor(shape.color)
-                                    const magnitude = Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
-                                    const model = regressionModels.magnitude
-                                    const predicted = model ? predictFromModel(model, magnitude) : null
+                                    const channelValue = getColorValue(shape.color, effectivePredChannel)
+                                    const model = regressionModels[effectivePredChannel]
+                                    const predicted = model ? predictFromModel(model, channelValue) : null
+                                    const isExcluded = excludedPoints.has(shape.label)
+                                    const residual = residualsData[effectivePredChannel]?.find(r => r.label === shape.label)
+                                    const isOutlier = residual && Math.abs(residual.standardizedResidual) > 2
 
                                     return (
-                                        <tr key={shape.id} className="border-t border-muted hover:bg-muted/20">
+                                        <tr key={shape.id} className={`border-t border-muted hover:bg-muted/20 ${
+                                            focusedLabel === shape.label ? 'bg-primary/5 ring-1 ring-primary/20' :
+                                            isExcluded ? 'opacity-40' :
+                                            !committed && model ? 'bg-amber-500/5 border-l-2 border-l-amber-500/30' : ''
+                                        }`}>
                                             <td className="p-1.5">
                                                 <div className="flex items-center gap-1">
                                                     <div
                                                         className="w-3 h-3 rounded"
                                                         style={{ backgroundColor: `rgb(${c.join(',')})` }}
                                                     />
-                                                    <span className="font-mono font-bold">{shape.label}</span>
+                                                    <span className={`font-mono font-bold ${isExcluded ? 'line-through' : ''}`}>{shape.label}</span>
+                                                    {isOutlier && !isExcluded && (
+                                                        <span className="text-amber-500 text-[10px]" title={`Std. residual: ${residual!.standardizedResidual.toFixed(2)}`}>&#9888;</span>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="p-1.5 font-mono text-[10px] text-muted-foreground">
@@ -676,16 +953,44 @@ export function RegressionStudio() {
                                             </td>
                                             <td className="p-1.5">
                                                 <input
+                                                    ref={el => { if (el) inputRefsMap.current.set(shape.label, el); else inputRefsMap.current.delete(shape.label) }}
                                                     type="number"
                                                     step="any"
                                                     className="w-14 bg-background border rounded px-1 py-0.5 text-xs"
                                                     placeholder="0.00"
                                                     value={committed?.y ?? ''}
                                                     onChange={(e) => handleConcentrationChange(shape.label, e.target.value)}
+                                                    onKeyDown={(e) => handleInputKeyDown(e, shape.label)}
+                                                    onPaste={(e) => handlePaste(e, shape.label)}
+                                                    onFocus={() => setFocusedLabel(shape.label)}
+                                                    onBlur={() => setFocusedLabel(null)}
                                                 />
                                             </td>
-                                            <td className="p-1.5 font-mono text-muted-foreground text-[10px]">
-                                                {predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : '\u2014'}
+                                            <td className={`p-1.5 font-mono text-[10px] ${!committed && model ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                                                {predicted !== null && !isNaN(predicted) ? (
+                                                    <>
+                                                        {predicted.toFixed(3)}
+                                                        {!committed && rseValue !== null && isFinite(rseValue) && (
+                                                            <span className="text-muted-foreground/50"> &plusmn;{rseValue.toFixed(1)}</span>
+                                                        )}
+                                                    </>
+                                                ) : '\u2014'}
+                                            </td>
+                                            <td className="p-1 w-6">
+                                                {committed && (
+                                                    <button
+                                                        onClick={() => setExcludedPoints(prev => {
+                                                            const next = new Set(prev)
+                                                            if (next.has(shape.label)) next.delete(shape.label)
+                                                            else next.add(shape.label)
+                                                            return next
+                                                        })}
+                                                        className={`w-4 h-4 rounded border text-[8px] flex items-center justify-center ${isExcluded ? 'bg-destructive/20 border-destructive text-destructive' : 'border-muted-foreground/30 hover:border-foreground'}`}
+                                                        title={isExcluded ? 'Include this point' : 'Exclude from regression'}
+                                                    >
+                                                        {isExcluded ? '\u2715' : ''}
+                                                    </button>
+                                                )}
                                             </td>
                                         </tr>
                                     )
@@ -752,8 +1057,78 @@ export function RegressionStudio() {
                         </div>
                     )}
                     </div>
+
+                    {/* Residual Plots */}
+                    {showResiduals && Object.keys(residualsData).length > 0 && (
+                        <div className="mt-4 space-y-3">
+                            <h3 className="text-xs font-semibold">Residual Plots</h3>
+                            <div className={`grid gap-3 ${activeCharts.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'}`}>
+                                {activeCharts.map(ch => {
+                                    const data = residualsData[ch]
+                                    if (!data || data.length === 0) return null
+                                    return (
+                                        <div key={`residual-${ch}`} className="bg-card border rounded-lg p-3">
+                                            <h4 className="text-xs font-semibold capitalize mb-2" style={{ color: channelColors[ch] }}>
+                                                {ch} Residuals
+                                            </h4>
+                                            <div className="h-40">
+                                                <Scatter
+                                                    data={{
+                                                        datasets: [{
+                                                            label: 'Residuals',
+                                                            data: data.map(r => ({ x: r.concentration, y: r.residual })),
+                                                            borderColor: channelColors[ch],
+                                                            backgroundColor: data.map(r =>
+                                                                Math.abs(r.standardizedResidual) > 2 ? '#f59e0b' : channelColors[ch]
+                                                            ),
+                                                            pointRadius: 6,
+                                                            showLine: false
+                                                        }, {
+                                                            label: 'Zero',
+                                                            data: [
+                                                                { x: Math.min(...data.map(r => r.concentration)) * 0.9, y: 0 },
+                                                                { x: Math.max(...data.map(r => r.concentration)) * 1.1, y: 0 }
+                                                            ],
+                                                            borderColor: 'rgba(255,255,255,0.3)',
+                                                            borderDash: [4, 4],
+                                                            pointRadius: 0,
+                                                            showLine: true,
+                                                            borderWidth: 1
+                                                        }]
+                                                    }}
+                                                    options={{
+                                                        responsive: true,
+                                                        maintainAspectRatio: false,
+                                                        plugins: { legend: { display: false } },
+                                                        scales: {
+                                                            x: { type: 'linear' as const, title: { display: true, text: 'Conc.', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                                                            y: { type: 'linear' as const, title: { display: true, text: 'Residual', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {showDilutionModal && (
+                <DilutionSeriesModal
+                    shapes={shapes}
+                    onApply={(points) => {
+                        setCommittedPoints(prev => {
+                            const newLabels = new Set(points.map(p => p.label))
+                            const kept = prev.filter(p => !newLabels.has(p.label))
+                            return [...kept, ...points]
+                        })
+                    }}
+                    onClose={() => setShowDilutionModal(false)}
+                />
+            )}
         </div>
     )
 }

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard, RefreshCw
+  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard, RefreshCw, Camera
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { useToast } from '@/components/ui/toast'
@@ -41,6 +41,7 @@ function App() {
     lastSaveError, clearSaveError
   } = useApp()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
   // Surface cache save errors
@@ -325,6 +326,18 @@ function App() {
             accept="image/*"
             onChange={handleFileChange}
           />
+          <Button variant="outline" size="sm" className="h-8 px-2 md:px-3" onClick={() => cameraInputRef.current?.click()}>
+            <Camera className="h-4 w-4 md:mr-1.5" />
+            <span className="hidden md:inline">Camera</span>
+          </Button>
+          <input
+            type="file"
+            ref={cameraInputRef}
+            className="hidden"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileChange}
+          />
           {/* Undo/Redo */}
           <Button variant="ghost" size="icon" className="hidden md:flex h-8 w-8" onClick={undo} disabled={!canUndo} title="Undo (Cmd+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
@@ -590,10 +603,14 @@ function App() {
                         <span>Enter concentrations and run regression analysis</span>
                       </div>
                     </div>
-                    <div className="flex gap-3 justify-center">
+                    <div className="flex gap-3 justify-center flex-wrap">
                       <Button onClick={() => fileInputRef.current?.click()}>
                         <Upload className="mr-2 h-4 w-4" />
                         Load Images
+                      </Button>
+                      <Button variant="outline" onClick={() => cameraInputRef.current?.click()}>
+                        <Camera className="mr-2 h-4 w-4" />
+                        Take Photo
                       </Button>
                       <Button variant="outline" onClick={() => setShowTutorial(true)}>
                         <HelpCircle className="mr-2 h-4 w-4" />
