@@ -202,6 +202,27 @@ export function RegressionStudio() {
     const [excludedPoints, setExcludedPoints] = useState<Set<string>>(new Set())
     const [showResiduals, setShowResiduals] = useState(false)
 
+    const getDisplayColor = (color: [number, number, number]): [number, number, number] => {
+        if (rawRgbMode) return color
+        return calibrateColor(color, colorCalibration)
+    }
+
+    const getColorValue = (color: [number, number, number], channel: ColorChannel): number => {
+        const c = getDisplayColor(color)
+        const cmyk = rgbToCmyk(c)
+        switch (channel) {
+            case 'red': return c[0]
+            case 'green': return c[1]
+            case 'blue': return c[2]
+            case 'cyan': return cmyk[0] * 100
+            case 'magenta': return cmyk[1] * 100
+            case 'yellow': return cmyk[2] * 100
+            case 'black': return cmyk[3] * 100
+            case 'magnitude': return Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
+            default: return 0
+        }
+    }
+
     const effectivePredChannel: ColorChannel = useMemo(() => {
         if (predictionChannel !== 'auto') return predictionChannel
         let bestCh: ColorChannel = 'magnitude'
@@ -278,11 +299,6 @@ export function RegressionStudio() {
         })
     }
 
-    const getDisplayColor = (color: [number, number, number]): [number, number, number] => {
-        if (rawRgbMode) return color
-        return calibrateColor(color, colorCalibration)
-    }
-
     const handleConcentrationChange = (label: string, value: string) => {
         if (value === '') {
             setCommittedPoints(prev => prev.filter(p => p.label !== label))
@@ -299,22 +315,6 @@ export function RegressionStudio() {
                 return [...prev, { label, y: num }]
             }
         })
-    }
-
-    const getColorValue = (color: [number, number, number], channel: ColorChannel): number => {
-        const c = getDisplayColor(color)
-        const cmyk = rgbToCmyk(c)
-        switch (channel) {
-            case 'red': return c[0]
-            case 'green': return c[1]
-            case 'blue': return c[2]
-            case 'cyan': return cmyk[0] * 100
-            case 'magenta': return cmyk[1] * 100
-            case 'yellow': return cmyk[2] * 100
-            case 'black': return cmyk[3] * 100
-            case 'magnitude': return Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
-            default: return 0
-        }
     }
 
     const [isAutoFitting, setIsAutoFitting] = useState(false)
