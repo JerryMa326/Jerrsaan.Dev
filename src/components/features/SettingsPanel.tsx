@@ -1,9 +1,83 @@
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
 import { Circle, Square, Info, Crosshair, Trash2, Database, X } from 'lucide-react'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useToast } from '@/components/ui/toast'
 import { hasCachedData, estimateCacheSize, formatBytes } from '@/lib/cacheUtils'
+
+function BoundInput({ value, onChange, className = '' }: {
+    value: number
+    onChange: (v: number) => void
+    className?: string
+}) {
+    const [editing, setEditing] = useState(false)
+    const [draft, setDraft] = useState(String(value))
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => { setDraft(String(value)) }, [value])
+    useEffect(() => { if (editing) inputRef.current?.select() }, [editing])
+
+    const commit = useCallback(() => {
+        setEditing(false)
+        const n = parseFloat(draft)
+        if (!isNaN(n) && n >= 0) onChange(n)
+        else setDraft(String(value))
+    }, [draft, value, onChange])
+
+    if (!editing) {
+        return (
+            <button
+                onClick={() => setEditing(true)}
+                className={`text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted px-1 rounded transition-colors cursor-text ${className}`}
+            >
+                {value}
+            </button>
+        )
+    }
+
+    return (
+        <input
+            ref={inputRef}
+            type="text"
+            inputMode="decimal"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(String(value)); setEditing(false) } }}
+            className={`w-10 text-[10px] font-mono bg-muted text-foreground px-1 rounded outline-none ring-1 ring-primary ${className}`}
+        />
+    )
+}
+
+function SliderWithBounds({ value, onChange, defaultMin, defaultMax, step = 1 }: {
+    value: number
+    onChange: (v: number) => void
+    defaultMin: number
+    defaultMax: number
+    step?: number
+}) {
+    const [bounds, setBounds] = useState({ min: defaultMin, max: defaultMax })
+
+    // Auto-expand bounds if value exceeds them (e.g. set via crosshair calibration)
+    const effectiveMin = Math.min(bounds.min, value)
+    const effectiveMax = Math.max(bounds.max, value)
+
+    return (
+        <div className="space-y-0.5">
+            <input
+                type="range"
+                min={effectiveMin} max={effectiveMax} step={step}
+                value={value}
+                onChange={e => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
+                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between">
+                <BoundInput value={bounds.min} onChange={v => setBounds(b => ({ ...b, min: v }))} />
+                <BoundInput value={bounds.max} onChange={v => setBounds(b => ({ ...b, max: v }))} />
+            </div>
+        </div>
+    )
+}
 
 function Tooltip({ text }: { text: string }) {
     const [show, setShow] = useState(false)
@@ -133,12 +207,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.param1}</span>
                             </div>
-                            <input
-                                type="range"
-                                min="10" max="300" step="1"
+                            <SliderWithBounds
                                 value={detectionSettings.param1}
-                                onChange={e => updateSetting('param1', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('param1', v)}
+                                defaultMin={10} defaultMax={300}
                             />
                         </div>
 
@@ -150,12 +222,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.param2}</span>
                             </div>
-                            <input
-                                type="range"
-                                min="10" max="200" step="1"
+                            <SliderWithBounds
                                 value={detectionSettings.param2}
-                                onChange={e => updateSetting('param2', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('param2', v)}
+                                defaultMin={10} defaultMax={200}
                             />
                         </div>
 
@@ -177,12 +247,10 @@ export function SettingsPanel() {
                                     </button>
                                 </div>
                             </div>
-                            <input
-                                type="range"
-                                min="1" max="200" step="1"
+                            <SliderWithBounds
                                 value={detectionSettings.minRadius}
-                                onChange={e => updateSetting('minRadius', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('minRadius', v)}
+                                defaultMin={1} defaultMax={200}
                             />
                             {calibrationMode === 'min' && (
                                 <div className="text-[10px] text-cyan-400 bg-cyan-500/10 p-1.5 rounded">
@@ -209,12 +277,10 @@ export function SettingsPanel() {
                                     </button>
                                 </div>
                             </div>
-                            <input
-                                type="range"
-                                min="10" max="500" step="1"
+                            <SliderWithBounds
                                 value={detectionSettings.maxRadius}
-                                onChange={e => updateSetting('maxRadius', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('maxRadius', v)}
+                                defaultMin={10} defaultMax={500}
                             />
                             {calibrationMode === 'max' && (
                                 <div className="text-[10px] text-fuchsia-400 bg-fuchsia-500/10 p-1.5 rounded">
@@ -231,12 +297,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.restrictedArea}%</span>
                             </div>
-                            <input
-                                type="range"
-                                min="10" max="100" step="5"
+                            <SliderWithBounds
                                 value={detectionSettings.restrictedArea}
-                                onChange={e => updateSetting('restrictedArea', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('restrictedArea', v)}
+                                defaultMin={10} defaultMax={100} step={5}
                             />
                         </div>
                     </div>
@@ -255,12 +319,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.minArea}px²</span>
                             </div>
-                            <input
-                                type="range"
-                                min="100" max="10000" step="100"
+                            <SliderWithBounds
                                 value={detectionSettings.minArea}
-                                onChange={e => updateSetting('minArea', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('minArea', v)}
+                                defaultMin={100} defaultMax={10000} step={100}
                             />
                         </div>
 
@@ -272,12 +334,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.maxArea}px²</span>
                             </div>
-                            <input
-                                type="range"
-                                min="1000" max="100000" step="1000"
+                            <SliderWithBounds
                                 value={detectionSettings.maxArea}
-                                onChange={e => updateSetting('maxArea', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('maxArea', v)}
+                                defaultMin={1000} defaultMax={100000} step={1000}
                             />
                         </div>
 
@@ -289,12 +349,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.epsilon.toFixed(3)}</span>
                             </div>
-                            <input
-                                type="range"
-                                min="0.01" max="0.1" step="0.005"
+                            <SliderWithBounds
                                 value={detectionSettings.epsilon}
-                                onChange={e => updateSetting('epsilon', parseFloat(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('epsilon', v)}
+                                defaultMin={0.01} defaultMax={0.1} step={0.005}
                             />
                         </div>
 
@@ -306,12 +364,10 @@ export function SettingsPanel() {
                                 </span>
                                 <span>{detectionSettings.restrictedArea}%</span>
                             </div>
-                            <input
-                                type="range"
-                                min="10" max="100" step="5"
+                            <SliderWithBounds
                                 value={detectionSettings.restrictedArea}
-                                onChange={e => updateSetting('restrictedArea', parseInt(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer"
+                                onChange={v => updateSetting('restrictedArea', v)}
+                                defaultMin={10} defaultMax={100} step={5}
                             />
                         </div>
                     </div>
@@ -329,9 +385,11 @@ export function SettingsPanel() {
                             <span className="flex items-center">Brightness<Tooltip text="Adjust overall image brightness." /></span>
                             <span>{detectionSettings.brightness}</span>
                         </div>
-                        <input type="range" min="-100" max="100" step="5" value={detectionSettings.brightness}
-                            onChange={e => updateSetting('brightness', parseInt(e.target.value))}
-                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer" />
+                        <SliderWithBounds
+                            value={detectionSettings.brightness}
+                            onChange={v => updateSetting('brightness', v)}
+                            defaultMin={-100} defaultMax={100} step={5}
+                        />
                     </div>
 
                     <div className="space-y-1">
@@ -339,9 +397,11 @@ export function SettingsPanel() {
                             <span className="flex items-center">Contrast<Tooltip text="Adjust image contrast." /></span>
                             <span>{detectionSettings.contrast.toFixed(1)}x</span>
                         </div>
-                        <input type="range" min="0.5" max="3.0" step="0.1" value={detectionSettings.contrast}
-                            onChange={e => updateSetting('contrast', parseFloat(e.target.value))}
-                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer" />
+                        <SliderWithBounds
+                            value={detectionSettings.contrast}
+                            onChange={v => updateSetting('contrast', v)}
+                            defaultMin={0.5} defaultMax={3.0} step={0.1}
+                        />
                     </div>
 
                     <div className="space-y-1">
@@ -349,9 +409,11 @@ export function SettingsPanel() {
                             <span className="flex items-center">Blur Kernel<Tooltip text="Size of Gaussian blur before detection." /></span>
                             <span>{detectionSettings.blurKernelSize}px</span>
                         </div>
-                        <input type="range" min="3" max="15" step="2" value={detectionSettings.blurKernelSize}
-                            onChange={e => updateSetting('blurKernelSize', parseInt(e.target.value))}
-                            className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer" />
+                        <SliderWithBounds
+                            value={detectionSettings.blurKernelSize}
+                            onChange={v => updateSetting('blurKernelSize', v)}
+                            defaultMin={3} defaultMax={15} step={2}
+                        />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -370,9 +432,11 @@ export function SettingsPanel() {
                                 <span className="flex items-center">Clip Limit<Tooltip text="Controls contrast amplification." /></span>
                                 <span>{detectionSettings.claheClipLimit.toFixed(1)}</span>
                             </div>
-                            <input type="range" min="1.0" max="8.0" step="0.5" value={detectionSettings.claheClipLimit}
-                                onChange={e => updateSetting('claheClipLimit', parseFloat(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer" />
+                            <SliderWithBounds
+                                value={detectionSettings.claheClipLimit}
+                                onChange={v => updateSetting('claheClipLimit', v)}
+                                defaultMin={1.0} defaultMax={8.0} step={0.5}
+                            />
                         </div>
                     )}
 
@@ -392,9 +456,11 @@ export function SettingsPanel() {
                                 <span className="flex items-center">Amount<Tooltip text="Sharpening strength." /></span>
                                 <span>{detectionSettings.sharpenAmount.toFixed(1)}x</span>
                             </div>
-                            <input type="range" min="0.5" max="3.0" step="0.1" value={detectionSettings.sharpenAmount}
-                                onChange={e => updateSetting('sharpenAmount', parseFloat(e.target.value))}
-                                className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer" />
+                            <SliderWithBounds
+                                value={detectionSettings.sharpenAmount}
+                                onChange={v => updateSetting('sharpenAmount', v)}
+                                defaultMin={0.5} defaultMax={3.0} step={0.1}
+                            />
                         </div>
                     )}
                 </div>
