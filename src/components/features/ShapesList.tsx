@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '@/context/AppContext'
 import { Button } from '@/components/ui/button'
-import { Trash2, ArrowUpDown, ArrowDown, ArrowUp, ArrowRight, ArrowLeft } from 'lucide-react'
+import { Trash2, ArrowUpDown, ArrowDown, ArrowUp, ArrowRight, ArrowLeft, X } from 'lucide-react'
 import { rgbToCmyk, rgbToHsl, rgbToHsv } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
 
@@ -12,7 +12,7 @@ export function ShapesList() {
     const {
         shapes, currentImageIndex, removeShape, updateShape, colorMode,
         selectedShapeId, setSelectedShapeId, setShapes,
-        rawRgbMode, colorCalibration
+        rawRgbMode, colorCalibration, clearShapesForImage
     } = useApp()
 
     const [showQuickSort, setShowQuickSort] = useState(false)
@@ -83,15 +83,26 @@ export function ShapesList() {
                 <div className="text-xs font-medium text-muted-foreground">
                     Detected Shapes ({currentShapes.length})
                 </div>
-                <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => setShowQuickSort(!showQuickSort)}
-                >
-                    <ArrowUpDown className="h-3 w-3 mr-1" />
-                    Sort
-                </Button>
+                <div className="flex gap-1">
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                        onClick={() => clearShapesForImage(currentImageIndex)}
+                    >
+                        <X className="h-3 w-3 mr-1" />
+                        Clear All
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => setShowQuickSort(!showQuickSort)}
+                    >
+                        <ArrowUpDown className="h-3 w-3 mr-1" />
+                        Sort
+                    </Button>
+                </div>
             </div>
 
             {showQuickSort && (
