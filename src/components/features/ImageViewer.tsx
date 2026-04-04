@@ -10,7 +10,7 @@ import { hitTestShape, getCursorForHit, type HitResult } from '@/hooks/useShapeD
 
 export function ImageViewer() {
     const {
-        images, currentImageIndex, shapes, addShape, updateShape, setSelectedShapeId,
+        images, currentImageIndex, setCurrentImageIndex, shapes, addShape, updateShape, setSelectedShapeId,
         zoomLevel, setZoomLevel, rotationAngle, setRotationAngle,
         detectionSettings, setDetectionSettings, selectedShapeId,
         boundingBox, setBoundingBox,
@@ -37,6 +37,8 @@ export function ImageViewer() {
     const [spacePressed, setSpacePressed] = useState(false)
     const [lastTouchDist, setLastTouchDist] = useState(0)
     const [isTouchPanning, setIsTouchPanning] = useState(false)
+    const [touchStartX, setTouchStartX] = useState(0)
+    const [touchStartTime, setTouchStartTime] = useState(0)
     const [showPreprocessing, setShowPreprocessing] = useState(true)
 
     // Shape drag state
@@ -689,6 +691,8 @@ export function ImageViewer() {
             setIsTouchPanning(true)
         } else if (e.touches.length === 1) {
             const touch = e.touches[0]
+            setTouchStartX(touch.clientX)
+            setTouchStartTime(Date.now())
             if (drawingMode === 'none') {
                 setIsTouchPanning(true)
                 setDragStart({ x: touch.clientX - offset.x, y: touch.clientY - offset.y })
@@ -741,9 +745,27 @@ export function ImageViewer() {
         }
     }
 
-    const handleTouchEnd = () => {
+    const handleTouchEnd = (e: React.TouchEvent) => {
         setLastTouchDist(0)
         setIsTouchPanning(false)
+
+        // Detect horizontal swipe to navigate images
+        if (drawingMode === 'none' && e.changedTouches.length === 1 && !shapeDragState) {
+            const dx = e.changedTouches[0].clientX - touchStartX
+            const dt = Date.now() - touchStartTime
+            const velocity = Math.abs(dx) / dt
+
+            if (Math.abs(dx) > 80 && velocity > 0.3 && dt < 500) {
+                if (dx < 0 && currentImageIndex < images.length - 1) {
+                    setCurrentImageIndex(currentImageIndex + 1)
+                    return
+                } else if (dx > 0 && currentImageIndex > 0) {
+                    setCurrentImageIndex(currentImageIndex - 1)
+                    return
+                }
+            }
+        }
+
         handleMouseUp()
     }
 
@@ -755,7 +777,7 @@ export function ImageViewer() {
     }
 
     return (
-        <div className="relative w-full h-full bg-neutral-900 overflow-hidden pb-14 md:pb-0" ref={containerRef}>
+        <div className="relative w-full h-full bg-neutral-900 overflow-hidden pb-16 md:pb-0" ref={containerRef}>
             <canvas
                 ref={canvasRef}
                 className={`block touch-none ${getCursorClass()}`}
@@ -770,33 +792,33 @@ export function ImageViewer() {
             />
 
             {/* Drawing Tools */}
-            <div className="absolute top-16 md:top-16 left-2 md:left-4 flex flex-col gap-1 bg-black/60 backdrop-blur-sm p-1 md:p-1.5 rounded-lg">
+            <div className="absolute bottom-20 md:top-16 left-2 md:left-4 flex flex-col gap-1 bg-black/70 backdrop-blur-md p-1.5 rounded-xl shadow-lg">
                 <Button
                     size="icon"
                     variant={drawingMode === 'none' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('none')}
                     title="Pan/Select/Drag"
-                    className="h-7 w-7 md:h-8 md:w-8"
+                    className="h-10 w-10 md:h-8 md:w-8"
                 >
-                    <MousePointer2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    <MousePointer2 className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 <Button
                     size="icon"
                     variant={drawingMode === 'rectangle' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('rectangle')}
                     title="Draw Rectangle"
-                    className="h-7 w-7 md:h-8 md:w-8"
+                    className="h-10 w-10 md:h-8 md:w-8"
                 >
-                    <Square className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    <Square className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 <Button
                     size="icon"
                     variant={drawingMode === 'circle' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('circle')}
                     title="Draw Circle"
-                    className="h-7 w-7 md:h-8 md:w-8"
+                    className="h-10 w-10 md:h-8 md:w-8"
                 >
-                    <Circle className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    <Circle className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 <div className="w-full h-px bg-muted-foreground/30 my-0.5" />
                 <Button
@@ -804,9 +826,9 @@ export function ImageViewer() {
                     variant={drawingMode === 'crop' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('crop')}
                     title="Select Region of Interest"
-                    className="h-7 w-7 md:h-8 md:w-8"
+                    className="h-10 w-10 md:h-8 md:w-8"
                 >
-                    <Crop className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    <Crop className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 {boundingBox && (
                     <Button
@@ -814,9 +836,9 @@ export function ImageViewer() {
                         variant="ghost"
                         onClick={() => setBoundingBox(null)}
                         title="Clear ROI"
-                        className="h-7 w-7 md:h-8 md:w-8 text-orange-500 hover:text-orange-400"
+                        className="h-10 w-10 md:h-8 md:w-8 text-orange-500 hover:text-orange-400"
                     >
-                        <X className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                        <X className="h-[18px] w-[18px] md:h-4 md:w-4" />
                     </Button>
                 )}
                 {hasPreprocessing && (
@@ -827,33 +849,33 @@ export function ImageViewer() {
                             variant={showPreprocessing ? 'default' : 'ghost'}
                             onClick={() => setShowPreprocessing(!showPreprocessing)}
                             title={showPreprocessing ? "Hide preprocessing preview" : "Show preprocessing preview"}
-                            className="h-7 w-7 md:h-8 md:w-8"
+                            className="h-10 w-10 md:h-8 md:w-8"
                         >
-                            {showPreprocessing ? <Eye className="h-3.5 w-3.5 md:h-4 md:w-4" /> : <EyeOff className="h-3.5 w-3.5 md:h-4 md:w-4" />}
+                            {showPreprocessing ? <Eye className="h-[18px] w-[18px] md:h-4 md:w-4" /> : <EyeOff className="h-[18px] w-[18px] md:h-4 md:w-4" />}
                         </Button>
                     </>
                 )}
             </div>
 
             {/* Zoom/Rotation Controls */}
-            <div className="absolute bottom-16 md:bottom-4 right-2 md:right-4 flex gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm p-1 md:p-1.5 rounded-lg">
-                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle - 1)} className="h-7 w-7 md:h-8 md:w-8">
-                    <RotateCcw className="h-3.5 w-3.5 md:h-4 md:w-4" />
+            <div className="absolute bottom-20 md:bottom-4 right-2 md:right-4 flex gap-0.5 md:gap-1 bg-black/70 backdrop-blur-md p-1.5 rounded-xl shadow-lg">
+                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle - 1)} className="h-10 w-10 md:h-8 md:w-8">
+                    <RotateCcw className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 <span className="hidden md:flex items-center text-xs w-10 justify-center">{rotationAngle}&deg;</span>
-                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle + 1)} className="h-7 w-7 md:h-8 md:w-8">
-                    <RotateCw className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle + 1)} className="h-10 w-10 md:h-8 md:w-8">
+                    <RotateCw className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 <div className="w-px bg-muted-foreground/30 mx-0.5 md:mx-1" />
-                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="h-7 w-7 md:h-8 md:w-8">
-                    <ZoomOut className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="h-10 w-10 md:h-8 md:w-8">
+                    <ZoomOut className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
                 <span className="hidden md:flex items-center text-xs w-12 justify-center">{Math.round(zoomLevel * 100)}%</span>
-                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.min(10, zoomLevel + 0.1))} className="h-7 w-7 md:h-8 md:w-8">
-                    <ZoomIn className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.min(10, zoomLevel + 0.1))} className="h-10 w-10 md:h-8 md:w-8">
+                    <ZoomIn className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
-                <Button size="icon" variant="ghost" onClick={() => { setZoomLevel(1); setOffset({ x: 0, y: 0 }); setRotationAngle(0) }} className="h-7 w-7 md:h-8 md:w-8">
-                    <Maximize className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => { setZoomLevel(1); setOffset({ x: 0, y: 0 }); setRotationAngle(0) }} className="h-10 w-10 md:h-8 md:w-8">
+                    <Maximize className="h-[18px] w-[18px] md:h-4 md:w-4" />
                 </Button>
             </div>
         </div>

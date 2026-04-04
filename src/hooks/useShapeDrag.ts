@@ -2,8 +2,8 @@ import type { Shape } from '@/types'
 
 export type HitResult = 'body' | 'edge' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br' | null
 
-const CORNER_TOLERANCE = 10
-const EDGE_TOLERANCE = 6
+const CORNER_TOLERANCE = 20
+const EDGE_TOLERANCE = 14
 
 export function hitTestShape(
     point: { x: number; y: number },

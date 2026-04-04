@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Scatter } from 'react-chartjs-2'
 import { rgbToCmyk } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
-import { Download, Upload, FileSpreadsheet, Layers, ImageDown, ClipboardCopy, Loader2, X } from 'lucide-react'
+import { Download, Upload, FileSpreadsheet, Layers, ImageDown, ClipboardCopy, Loader2, X, MoreHorizontal } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { Shape, CommittedPoint } from '@/types'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
@@ -201,6 +202,8 @@ export function RegressionStudio() {
     const [predictionChannel, setPredictionChannel] = useState<ColorChannel | 'auto'>('auto')
     const [excludedPoints, setExcludedPoints] = useState<Set<string>>(new Set())
     const [showResiduals, setShowResiduals] = useState(false)
+    const [showMobileMenu, setShowMobileMenu] = useState(false)
+    const [mobileRegTab, setMobileRegTab] = useState<'data' | 'charts'>('data')
 
     const getDisplayColor = (color: [number, number, number]): [number, number, number] => {
         if (rawRgbMode) return color
@@ -764,9 +767,28 @@ export function RegressionStudio() {
             {/* Header */}
             <div className="flex flex-wrap justify-between items-center gap-3">
                 <h2 className="text-lg font-bold">Regression Studio</h2>
-                <div className="flex gap-2 flex-wrap">
-                    <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                        <Upload className="w-4 h-4 mr-1" /> Import
+                <div className="flex gap-2 flex-wrap items-center">
+                    {/* Desktop export buttons */}
+                    <div className="hidden md:flex gap-2 flex-wrap">
+                        <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                            <Upload className="w-4 h-4 mr-1" /> Import
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={exportModel} disabled={committedPoints.length === 0}>
+                            <Download className="w-4 h-4 mr-1" /> JSON
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={exportCSV} disabled={shapes.length === 0}>
+                            <FileSpreadsheet className="w-4 h-4 mr-1" /> CSV
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={copyToClipboard} disabled={shapes.length === 0}>
+                            <ClipboardCopy className="w-4 h-4 mr-1" /> Copy
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={exportChartsPNG} disabled={activeCharts.length === 0 || committedPoints.length < 2}>
+                            <ImageDown className="w-4 h-4 mr-1" /> PNG
+                        </Button>
+                    </div>
+                    {/* Mobile overflow menu trigger */}
+                    <Button size="sm" variant="outline" className="md:hidden h-10" onClick={() => setShowMobileMenu(!showMobileMenu)}>
+                        <MoreHorizontal className="w-4 h-4" />
                     </Button>
                     <input
                         type="file"
@@ -775,23 +797,31 @@ export function RegressionStudio() {
                         accept=".json"
                         onChange={importModel}
                     />
-                    <Button size="sm" variant="outline" onClick={exportModel} disabled={committedPoints.length === 0}>
-                        <Download className="w-4 h-4 mr-1" /> JSON
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={exportCSV} disabled={shapes.length === 0}>
-                        <FileSpreadsheet className="w-4 h-4 mr-1" /> CSV
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={copyToClipboard} disabled={shapes.length === 0}>
-                        <ClipboardCopy className="w-4 h-4 mr-1" /> Copy
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={exportChartsPNG} disabled={activeCharts.length === 0 || committedPoints.length < 2}>
-                        <ImageDown className="w-4 h-4 mr-1" /> PNG
-                    </Button>
-                    <Button size="sm" onClick={runRegression} disabled={committedPoints.length < 2}>
+                    <Button size="sm" className="h-10 md:h-9" onClick={runRegression} disabled={committedPoints.length < 2}>
                         Run Regression
                     </Button>
                 </div>
             </div>
+            {/* Mobile export menu */}
+            {showMobileMenu && (
+                <div className="md:hidden flex flex-wrap gap-2 p-3 bg-card rounded-lg border">
+                    <Button size="sm" variant="outline" className="h-10" onClick={() => { fileInputRef.current?.click(); setShowMobileMenu(false) }}>
+                        <Upload className="w-4 h-4 mr-1" /> Import
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-10" onClick={() => { exportModel(); setShowMobileMenu(false) }} disabled={committedPoints.length === 0}>
+                        <Download className="w-4 h-4 mr-1" /> JSON
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-10" onClick={() => { exportCSV(); setShowMobileMenu(false) }} disabled={shapes.length === 0}>
+                        <FileSpreadsheet className="w-4 h-4 mr-1" /> CSV
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-10" onClick={() => { copyToClipboard(); setShowMobileMenu(false) }} disabled={shapes.length === 0}>
+                        <ClipboardCopy className="w-4 h-4 mr-1" /> Copy
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-10" onClick={() => { exportChartsPNG(); setShowMobileMenu(false) }} disabled={activeCharts.length === 0 || committedPoints.length < 2}>
+                        <ImageDown className="w-4 h-4 mr-1" /> PNG
+                    </Button>
+                </div>
+            )}
 
             {/* Model Type Selector */}
             <div className="flex flex-wrap gap-1.5 p-2 bg-card rounded-lg border">
@@ -834,13 +864,13 @@ export function RegressionStudio() {
             </div>
 
             {/* Channel Toggle + Overlay */}
-            <div className="flex flex-wrap gap-1.5 p-2 bg-card rounded-lg border items-center">
-                <span className="text-xs text-muted-foreground mr-2 self-center">Charts:</span>
+            <div className="flex overflow-x-auto md:overflow-visible md:flex-wrap gap-1.5 p-2 bg-card rounded-lg border items-center">
+                <span className="text-xs text-muted-foreground mr-2 self-center shrink-0">Charts:</span>
                 {(['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'black', 'magnitude'] as ColorChannel[]).map(ch => (
                     <button
                         key={ch}
                         onClick={() => toggleChart(ch)}
-                        className={`px-2 py-1 text-xs rounded transition-all ${activeCharts.includes(ch)
+                        className={`shrink-0 px-2 py-1.5 text-xs rounded transition-all min-h-[36px] ${activeCharts.includes(ch)
                             ? 'text-white shadow-sm'
                             : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                             }`}
@@ -852,17 +882,17 @@ export function RegressionStudio() {
                         )}
                     </button>
                 ))}
-                <div className="w-px h-5 bg-muted-foreground/30 mx-1" />
+                <div className="w-px h-5 bg-muted-foreground/30 mx-1 shrink-0" />
                 <button
                     onClick={() => setOverlayMode(!overlayMode)}
-                    className={`px-2 py-1 text-xs rounded transition-all flex items-center gap-1 ${overlayMode ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
+                    className={`shrink-0 px-2 py-1.5 text-xs rounded transition-all flex items-center gap-1 min-h-[36px] ${overlayMode ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
                     title="Overlay all channels on one chart"
                 >
                     <Layers className="h-3 w-3" /> Overlay
                 </button>
                 <button
                     onClick={() => setShowResiduals(!showResiduals)}
-                    className={`px-2 py-1 text-xs rounded transition-all flex items-center gap-1 ${showResiduals ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
+                    className={`shrink-0 px-2 py-1.5 text-xs rounded transition-all flex items-center gap-1 min-h-[36px] ${showResiduals ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-muted'}`}
                     title="Show residual plots"
                 >
                     Residuals
@@ -890,10 +920,26 @@ export function RegressionStudio() {
                 </div>
             )}
 
+            {/* Mobile Tab Switcher */}
+            <div className="flex md:hidden border rounded-lg overflow-hidden">
+                <button
+                    className={cn("flex-1 py-2.5 text-xs font-medium min-h-[44px]", mobileRegTab === 'data' ? 'bg-primary text-primary-foreground' : 'bg-card')}
+                    onClick={() => setMobileRegTab('data')}
+                >
+                    Data Table
+                </button>
+                <button
+                    className={cn("flex-1 py-2.5 text-xs font-medium min-h-[44px]", mobileRegTab === 'charts' ? 'bg-primary text-primary-foreground' : 'bg-card')}
+                    onClick={() => setMobileRegTab('charts')}
+                >
+                    Charts
+                </button>
+            </div>
+
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
                 {/* Data Table */}
-                <div className="xl:col-span-1 border rounded-lg overflow-hidden bg-card">
+                <div className={cn("xl:col-span-1 border rounded-lg overflow-hidden bg-card", mobileRegTab === 'charts' && "hidden md:block")}>
                     <div className="p-2 bg-muted/50 border-b text-xs font-semibold flex items-center justify-between">
                         <span>Data Points</span>
                         <div className="flex gap-1">
@@ -905,7 +951,7 @@ export function RegressionStudio() {
                             </button>
                         </div>
                     </div>
-                    <div className="max-h-80 overflow-y-auto">
+                    <div className="max-h-64 md:max-h-80 overflow-y-auto overflow-x-auto">
                         <table className="w-full text-xs">
                             <thead className="bg-muted/30 sticky top-0">
                                 <tr>
@@ -956,7 +1002,7 @@ export function RegressionStudio() {
                                                     ref={el => { if (el) inputRefsMap.current.set(shape.label, el); else inputRefsMap.current.delete(shape.label) }}
                                                     type="number"
                                                     step="any"
-                                                    className="w-14 bg-background border rounded px-1 py-0.5 text-xs"
+                                                    className="w-16 bg-background border rounded px-1.5 py-1 text-xs"
                                                     placeholder="0.00"
                                                     value={committed?.y ?? ''}
                                                     onChange={(e) => handleConcentrationChange(shape.label, e.target.value)}
@@ -1001,12 +1047,12 @@ export function RegressionStudio() {
                 </div>
 
                 {/* Equations + Charts */}
-                <div className="xl:col-span-3 space-y-4">
+                <div className={cn("xl:col-span-3 space-y-4", mobileRegTab === 'data' && "hidden md:block")}>
                     {/* Equations */}
                     {Object.keys(regressionModels).length > 0 && (
                         <div className="border rounded-lg p-3 bg-card">
                             <h3 className="text-xs font-semibold mb-2">Regression Equations</h3>
-                            <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
                                 {(['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'black', 'magnitude'] as ColorChannel[]).map(ch => {
                                     const model = regressionModels[ch]
                                     if (!model) return null
@@ -1029,12 +1075,12 @@ export function RegressionStudio() {
                             <div className="flex items-center justify-between mb-2">
                                 <h4 className="text-xs font-semibold">All Channels Overlay</h4>
                             </div>
-                            <div className="h-72">
+                            <div className="h-56 md:h-72">
                                 <Scatter options={chartOptions('magnitude')} data={createOverlayChartData()} />
                             </div>
                         </div>
                     ) : (
-                        <div className={`grid gap-3 ${activeCharts.length === 1 ? 'grid-cols-1' : activeCharts.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'}`}>
+                        <div className={`grid gap-3 ${activeCharts.length === 1 ? 'grid-cols-1' : activeCharts.length <= 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
                             {activeCharts.map(ch => (
                                 <div key={ch} className="bg-card border rounded-lg p-3">
                                     <div className="flex items-center justify-between mb-2">
@@ -1045,7 +1091,7 @@ export function RegressionStudio() {
                                             </span>
                                         )}
                                     </div>
-                                    <div className="h-48">
+                                    <div className="h-40 md:h-48">
                                         <Scatter
                                             options={chartOptions(ch)}
                                             data={createChartData(ch)}
@@ -1062,7 +1108,7 @@ export function RegressionStudio() {
                     {showResiduals && Object.keys(residualsData).length > 0 && (
                         <div className="mt-4 space-y-3">
                             <h3 className="text-xs font-semibold">Residual Plots</h3>
-                            <div className={`grid gap-3 ${activeCharts.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'}`}>
+                            <div className={`grid gap-3 ${activeCharts.length <= 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
                                 {activeCharts.map(ch => {
                                     const data = residualsData[ch]
                                     if (!data || data.length === 0) return null
@@ -1071,7 +1117,7 @@ export function RegressionStudio() {
                                             <h4 className="text-xs font-semibold capitalize mb-2" style={{ color: channelColors[ch] }}>
                                                 {ch} Residuals
                                             </h4>
-                                            <div className="h-40">
+                                            <div className="h-32 md:h-40">
                                                 <Scatter
                                                     data={{
                                                         datasets: [{

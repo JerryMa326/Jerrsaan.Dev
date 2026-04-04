@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button'
 import {
   Settings, Image as ImageIcon, BarChart3, Upload, Trash2,
   Wand2, Grid, ChevronLeft, ChevronRight, Palette, ListTree, Loader2,
-  Menu, X, ChevronDown, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard, RefreshCw, Camera
+  Menu, X, ChevronDown, ChevronUp, Plus, HelpCircle, Undo2, Redo2, CheckCircle2, PlayCircle, Keyboard, RefreshCw, Camera
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useApp } from '@/context/AppContext'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -26,6 +27,8 @@ function App() {
   const [rightPanel, setRightPanel] = useState<'shapes' | 'colors'>('shapes')
   const [isDetecting, setIsDetecting] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'none' | 'images' | 'info' | 'settings'>('none')
+  const [mobilePanelHeight, setMobilePanelHeight] = useState<'half' | 'full'>('half')
+  const panelDragStartY = useRef(0)
   const [showTutorial, setShowTutorial] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -229,6 +232,22 @@ function App() {
 
   const currentShapeCount = shapes.filter(s => s.imageIndex === currentImageIndex).length
 
+  // Slide-up panel drag handlers
+  const handlePanelDragStart = (e: React.TouchEvent) => {
+    panelDragStartY.current = e.touches[0].clientY
+  }
+  const handlePanelDragMove = (e: React.TouchEvent) => {
+    e.preventDefault()
+  }
+  const handlePanelDragEnd = (e: React.TouchEvent) => {
+    const delta = e.changedTouches[0].clientY - panelDragStartY.current
+    if (delta < -50) setMobilePanelHeight('full')
+    else if (delta > 50) {
+      if (mobilePanelHeight === 'full') setMobilePanelHeight('half')
+      else setMobilePanel('none')
+    }
+  }
+
   return (
     <div
       className="flex h-screen w-full flex-col bg-background text-foreground overflow-hidden"
@@ -298,18 +317,20 @@ function App() {
           <Button
             variant={activeTab === 'detect' ? 'default' : 'ghost'}
             size="sm"
-            className="px-2 h-8"
+            className="px-3 h-10"
             onClick={() => setActiveTab('detect')}
           >
-            <ImageIcon className="h-4 w-4" />
+            <ImageIcon className="h-4 w-4 mr-1" />
+            <span className="text-xs">Detect</span>
           </Button>
           <Button
             variant={activeTab === 'analyze' ? 'default' : 'ghost'}
             size="sm"
-            className="px-2 h-8"
+            className="px-3 h-10"
             onClick={() => setActiveTab('analyze')}
           >
-            <BarChart3 className="h-4 w-4" />
+            <BarChart3 className="h-4 w-4 mr-1" />
+            <span className="text-xs">Regress</span>
           </Button>
         </div>
 
@@ -378,10 +399,10 @@ function App() {
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden h-8 w-8"
+            className="md:hidden h-10 w-10"
             onClick={() => setMobilePanel(mobilePanel === 'none' ? 'settings' : 'none')}
           >
-            {mobilePanel !== 'none' ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            {mobilePanel !== 'none' ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
         </div>
       </header>
@@ -460,66 +481,76 @@ function App() {
             <div className="flex-1 min-w-0 flex flex-col relative bg-neutral-900 overflow-hidden">
               {/* Toolbar - Responsive (Hide in Grid View) */}
               {!isGridView && (
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/60 backdrop-blur-sm px-1.5 md:px-2 py-1 rounded-lg">
-                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0} aria-label="Previous image">
+                <div className="absolute top-2 left-2 md:left-1/2 md:-translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/70 backdrop-blur-md px-2 py-1.5 rounded-xl shadow-lg">
+                  <Button size="icon" variant="ghost" className="h-10 w-10 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0} aria-label="Previous image">
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <span className="text-[10px] md:text-xs w-12 md:w-16 text-center">
                     {images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}
                   </span>
-                  <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1} aria-label="Next image">
+                  <Button size="icon" variant="ghost" className="h-10 w-10 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1} aria-label="Next image">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                   <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
-                  <Button size="sm" variant="ghost" className="h-7 md:h-8 px-1.5 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect">
-                    {isDetecting ? <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" /> : <Wand2 className="h-3 w-3 md:h-4 md:w-4" />}
+                  <Button size="sm" variant="ghost" className="h-10 md:h-8 px-2 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect">
+                    {isDetecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                     <span className="hidden sm:inline ml-1">{isDetecting ? 'Detecting...' : 'Auto'}</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
+                    className="h-10 md:h-8 px-2 md:px-2 text-xs"
                     onClick={handleBatchDetect}
                     disabled={images.length === 0 || isDetecting}
                     title="Detect all images"
                   >
-                    <PlayCircle className="h-3 w-3 md:h-4 md:w-4" />
+                    <PlayCircle className="h-4 w-4" />
                     <span className="hidden sm:inline ml-1">All</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 md:h-8 px-1.5 md:px-2 text-xs"
+                    className="h-10 md:h-8 px-2 md:px-2 text-xs"
                     onClick={() => clearShapesForImage(currentImageIndex)}
                     disabled={images.length === 0}
                   >
-                    <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
+                    <Trash2 className="h-4 w-4" />
                     <span className="hidden sm:inline ml-1">Clear</span>
                   </Button>
+                  {/* Mobile-only undo/redo */}
+                  <div className="flex md:hidden items-center gap-0.5">
+                    <div className="w-px h-4 bg-muted-foreground/30 mx-0.5" />
+                    <Button size="icon" variant="ghost" className="h-10 w-10" onClick={undo} disabled={!canUndo} aria-label="Undo">
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-10 w-10" onClick={redo} disabled={!canRedo} aria-label="Redo">
+                      <Redo2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
 
               {/* Mobile Bottom Bar */}
-              <div className="md:hidden absolute bottom-0 left-0 right-0 z-10 flex bg-card/95 backdrop-blur-sm border-t">
+              <div className="md:hidden absolute bottom-0 left-0 right-0 z-10 flex bg-card/95 backdrop-blur-sm border-t" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
                 <button
-                  className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'images' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
+                  className={`flex-1 min-h-[44px] py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'images' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
                   onClick={() => setMobilePanel(mobilePanel === 'images' ? 'none' : 'images')}
                 >
-                  <Grid className="h-4 w-4" />
+                  <Grid className="h-5 w-5" />
                   <span>Images ({images.length})</span>
                 </button>
                 <button
-                  className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'info' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
+                  className={`flex-1 min-h-[44px] py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'info' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
                   onClick={() => setMobilePanel(mobilePanel === 'info' ? 'none' : 'info')}
                 >
-                  <Palette className="h-4 w-4" />
+                  <Palette className="h-5 w-5" />
                   <span>Shapes ({currentShapeCount})</span>
                 </button>
                 <button
-                  className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'settings' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
+                  className={`flex-1 min-h-[44px] py-2.5 text-xs font-medium flex flex-col items-center gap-0.5 ${mobilePanel === 'settings' ? 'text-primary bg-muted' : 'text-muted-foreground'}`}
                   onClick={() => setMobilePanel(mobilePanel === 'settings' ? 'none' : 'settings')}
                 >
-                  <Settings className="h-4 w-4" />
+                  <Settings className="h-5 w-5" />
                   <span>Settings</span>
                 </button>
               </div>
@@ -650,16 +681,35 @@ function App() {
 
             {/* Mobile Slide-up Panels */}
             {mobilePanel !== 'none' && (
-              <div className="md:hidden absolute inset-x-0 bottom-14 z-20 bg-card border-t rounded-t-xl shadow-xl max-h-[60vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200">
-                <div className="flex items-center justify-between p-3 border-b">
+              <div className={cn(
+                "md:hidden absolute inset-x-0 z-20 bg-card border-t rounded-t-xl shadow-xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200",
+                mobilePanelHeight === 'full'
+                  ? "top-12 bottom-0"
+                  : "bottom-14 max-h-[60vh]"
+              )} style={mobilePanelHeight === 'half' ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}>
+                {/* Drag Handle */}
+                <div
+                  className="flex justify-center pt-2 pb-1 cursor-grab active:cursor-grabbing touch-none"
+                  onTouchStart={handlePanelDragStart}
+                  onTouchMove={handlePanelDragMove}
+                  onTouchEnd={handlePanelDragEnd}
+                >
+                  <div className="w-10 h-1 rounded-full bg-muted-foreground/40" />
+                </div>
+                <div className="flex items-center justify-between px-3 pb-2 border-b">
                   <h3 className="font-semibold text-sm">
                     {mobilePanel === 'images' && 'Images'}
                     {mobilePanel === 'info' && 'Shapes & Colors'}
                     {mobilePanel === 'settings' && 'Settings'}
                   </h3>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setMobilePanel('none')}>
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setMobilePanelHeight(mobilePanelHeight === 'full' ? 'half' : 'full')}>
+                      {mobilePanelHeight === 'full' ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setMobilePanel('none'); setMobilePanelHeight('half') }}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                   {mobilePanel === 'images' && (
@@ -691,7 +741,7 @@ function App() {
                           </Button>
                         )}
                       </div>
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-3 gap-3">
                         {images.map((img, idx) => (
                           <div
                             key={idx}
@@ -707,7 +757,7 @@ function App() {
                               }}
                             />
                             <button
-                              className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 hover:bg-destructive rounded-full flex items-center justify-center"
+                              className="absolute top-0.5 right-0.5 w-6 h-6 bg-black/70 hover:bg-destructive rounded-full flex items-center justify-center"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 showConfirm(`Delete image ${idx + 1}?`, () => removeImage(idx))
@@ -732,13 +782,13 @@ function App() {
                     <div className="space-y-0">
                       <div className="flex border-b">
                         <button
-                          className={`flex-1 py-2 text-xs font-medium ${rightPanel === 'shapes' ? 'bg-muted' : ''}`}
+                          className={`flex-1 py-2.5 text-xs font-medium min-h-[44px] ${rightPanel === 'shapes' ? 'bg-muted' : ''}`}
                           onClick={() => setRightPanel('shapes')}
                         >
                           Shapes
                         </button>
                         <button
-                          className={`flex-1 py-2 text-xs font-medium ${rightPanel === 'colors' ? 'bg-muted' : ''}`}
+                          className={`flex-1 py-2.5 text-xs font-medium min-h-[44px] ${rightPanel === 'colors' ? 'bg-muted' : ''}`}
                           onClick={() => setRightPanel('colors')}
                         >
                           Colors
@@ -747,7 +797,19 @@ function App() {
                       {rightPanel === 'shapes' ? <ShapesList /> : <ColorAnalysisPanel />}
                     </div>
                   )}
-                  {mobilePanel === 'settings' && <SettingsPanel />}
+                  {mobilePanel === 'settings' && (
+                    <div>
+                      <div className="flex gap-2 p-3 border-b">
+                        <Button size="sm" variant="outline" className="flex-1 min-h-[44px]" onClick={() => { setShowTutorial(true); setMobilePanel('none') }}>
+                          <HelpCircle className="h-4 w-4 mr-2" /> Tutorial
+                        </Button>
+                        <Button size="sm" variant="outline" className="flex-1 min-h-[44px]" onClick={() => { setShowShortcuts(true); setMobilePanel('none') }}>
+                          <Keyboard className="h-4 w-4 mr-2" /> Shortcuts
+                        </Button>
+                      </div>
+                      <SettingsPanel />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -766,7 +828,7 @@ function App() {
       </main>
 
       {/* Watermark */}
-      <footer className="h-6 flex items-center justify-center bg-card/50 border-t text-[10px] text-muted-foreground shrink-0">
+      <footer className="hidden md:flex h-6 items-center justify-center bg-card/50 border-t text-[10px] text-muted-foreground shrink-0">
         Created by Hassaan Vani, Grady Chen, and Jerry Ma
       </footer>
 
