@@ -317,20 +317,20 @@ function App() {
           <Button
             variant={activeTab === 'detect' ? 'default' : 'ghost'}
             size="sm"
-            className="px-3 h-10"
+            className="px-2.5 h-8"
             onClick={() => setActiveTab('detect')}
           >
             <ImageIcon className="h-4 w-4 mr-1" />
-            <span className="text-xs">Detect</span>
+            <span className="text-[11px]">Detect</span>
           </Button>
           <Button
             variant={activeTab === 'analyze' ? 'default' : 'ghost'}
             size="sm"
-            className="px-3 h-10"
+            className="px-2.5 h-8"
             onClick={() => setActiveTab('analyze')}
           >
             <BarChart3 className="h-4 w-4 mr-1" />
-            <span className="text-xs">Regress</span>
+            <span className="text-[11px]">Regress</span>
           </Button>
         </div>
 
@@ -399,10 +399,10 @@ function App() {
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden h-10 w-10"
+            className="md:hidden h-8 w-8"
             onClick={() => setMobilePanel(mobilePanel === 'none' ? 'settings' : 'none')}
           >
-            {mobilePanel !== 'none' ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {mobilePanel !== 'none' ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </Button>
         </div>
       </header>
@@ -481,49 +481,33 @@ function App() {
             <div className="flex-1 min-w-0 flex flex-col relative bg-neutral-900 overflow-hidden">
               {/* Toolbar - Responsive (Hide in Grid View) */}
               {!isGridView && (
-                <div className="absolute top-2 left-2 md:left-1/2 md:-translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/70 backdrop-blur-md px-2 py-1.5 rounded-xl shadow-lg">
-                  <Button size="icon" variant="ghost" className="h-10 w-10 md:h-8 md:w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0} aria-label="Previous image">
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 md:gap-1 bg-black/70 backdrop-blur-md px-1.5 md:px-2 py-1 rounded-xl shadow-lg">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handlePrevImage} disabled={currentImageIndex === 0} aria-label="Previous image">
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="text-[10px] md:text-xs w-12 md:w-16 text-center">
+                  <span className="text-[10px] md:text-xs w-10 md:w-16 text-center">
                     {images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}
                   </span>
-                  <Button size="icon" variant="ghost" className="h-10 w-10 md:h-8 md:w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1} aria-label="Next image">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1} aria-label="Next image">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
-                  <div className="w-px h-4 bg-muted-foreground/30 mx-0.5 md:mx-1" />
-                  <Button size="sm" variant="ghost" className="h-10 md:h-8 px-2 md:px-2 text-xs" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect">
+                  <div className="w-px h-4 bg-muted-foreground/30 mx-0.5" />
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect" title="Auto-detect">
                     {isDetecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                    <span className="hidden sm:inline ml-1">{isDetecting ? 'Detecting...' : 'Auto'}</span>
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-10 md:h-8 px-2 md:px-2 text-xs"
-                    onClick={handleBatchDetect}
-                    disabled={images.length === 0 || isDetecting}
-                    title="Detect all images"
-                  >
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleBatchDetect} disabled={images.length === 0 || isDetecting} title="Detect all images">
                     <PlayCircle className="h-4 w-4" />
-                    <span className="hidden sm:inline ml-1">All</span>
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-10 md:h-8 px-2 md:px-2 text-xs"
-                    onClick={() => clearShapesForImage(currentImageIndex)}
-                    disabled={images.length === 0}
-                  >
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => clearShapesForImage(currentImageIndex)} disabled={images.length === 0} title="Clear shapes">
                     <Trash2 className="h-4 w-4" />
-                    <span className="hidden sm:inline ml-1">Clear</span>
                   </Button>
                   {/* Mobile-only undo/redo */}
                   <div className="flex md:hidden items-center gap-0.5">
                     <div className="w-px h-4 bg-muted-foreground/30 mx-0.5" />
-                    <Button size="icon" variant="ghost" className="h-10 w-10" onClick={undo} disabled={!canUndo} aria-label="Undo">
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={undo} disabled={!canUndo} aria-label="Undo">
                       <Undo2 className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-10 w-10" onClick={redo} disabled={!canRedo} aria-label="Redo">
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={redo} disabled={!canRedo} aria-label="Redo">
                       <Redo2 className="h-4 w-4" />
                     </Button>
                   </div>

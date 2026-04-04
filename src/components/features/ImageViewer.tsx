@@ -792,33 +792,33 @@ export function ImageViewer() {
             />
 
             {/* Drawing Tools */}
-            <div className="absolute bottom-20 md:top-16 left-2 md:left-4 flex flex-col gap-1 bg-black/70 backdrop-blur-md p-1.5 rounded-xl shadow-lg">
+            <div className="absolute top-14 md:top-16 left-2 md:left-4 flex flex-col gap-0.5 bg-black/70 backdrop-blur-md p-1 md:p-1.5 rounded-xl shadow-lg">
                 <Button
                     size="icon"
                     variant={drawingMode === 'none' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('none')}
                     title="Pan/Select/Drag"
-                    className="h-10 w-10 md:h-8 md:w-8"
+                    className="h-9 w-9 md:h-8 md:w-8"
                 >
-                    <MousePointer2 className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                    <MousePointer2 className="h-4 w-4" />
                 </Button>
                 <Button
                     size="icon"
                     variant={drawingMode === 'rectangle' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('rectangle')}
                     title="Draw Rectangle"
-                    className="h-10 w-10 md:h-8 md:w-8"
+                    className="h-9 w-9 md:h-8 md:w-8"
                 >
-                    <Square className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                    <Square className="h-4 w-4" />
                 </Button>
                 <Button
                     size="icon"
                     variant={drawingMode === 'circle' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('circle')}
                     title="Draw Circle"
-                    className="h-10 w-10 md:h-8 md:w-8"
+                    className="h-9 w-9 md:h-8 md:w-8"
                 >
-                    <Circle className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                    <Circle className="h-4 w-4" />
                 </Button>
                 <div className="w-full h-px bg-muted-foreground/30 my-0.5" />
                 <Button
@@ -826,9 +826,9 @@ export function ImageViewer() {
                     variant={drawingMode === 'crop' ? 'default' : 'ghost'}
                     onClick={() => setDrawingMode('crop')}
                     title="Select Region of Interest"
-                    className="h-10 w-10 md:h-8 md:w-8"
+                    className="h-9 w-9 md:h-8 md:w-8"
                 >
-                    <Crop className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                    <Crop className="h-4 w-4" />
                 </Button>
                 {boundingBox && (
                     <Button
@@ -836,9 +836,9 @@ export function ImageViewer() {
                         variant="ghost"
                         onClick={() => setBoundingBox(null)}
                         title="Clear ROI"
-                        className="h-10 w-10 md:h-8 md:w-8 text-orange-500 hover:text-orange-400"
+                        className="h-9 w-9 md:h-8 md:w-8 text-orange-500 hover:text-orange-400"
                     >
-                        <X className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                        <X className="h-4 w-4" />
                     </Button>
                 )}
                 {hasPreprocessing && (
@@ -849,33 +849,33 @@ export function ImageViewer() {
                             variant={showPreprocessing ? 'default' : 'ghost'}
                             onClick={() => setShowPreprocessing(!showPreprocessing)}
                             title={showPreprocessing ? "Hide preprocessing preview" : "Show preprocessing preview"}
-                            className="h-10 w-10 md:h-8 md:w-8"
+                            className="h-9 w-9 md:h-8 md:w-8"
                         >
-                            {showPreprocessing ? <Eye className="h-[18px] w-[18px] md:h-4 md:w-4" /> : <EyeOff className="h-[18px] w-[18px] md:h-4 md:w-4" />}
+                            {showPreprocessing ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                         </Button>
                     </>
                 )}
             </div>
 
             {/* Zoom/Rotation Controls */}
-            <div className="absolute bottom-20 md:bottom-4 right-2 md:right-4 flex gap-0.5 md:gap-1 bg-black/70 backdrop-blur-md p-1.5 rounded-xl shadow-lg">
-                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle - 1)} className="h-10 w-10 md:h-8 md:w-8">
-                    <RotateCcw className="h-[18px] w-[18px] md:h-4 md:w-4" />
+            <div className="absolute bottom-18 md:bottom-4 right-2 md:right-4 flex gap-0.5 md:gap-1 bg-black/70 backdrop-blur-md p-1 md:p-1.5 rounded-xl shadow-lg">
+                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle - 1)} className="h-8 w-8">
+                    <RotateCcw className="h-4 w-4" />
                 </Button>
                 <span className="hidden md:flex items-center text-xs w-10 justify-center">{rotationAngle}&deg;</span>
-                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle + 1)} className="h-10 w-10 md:h-8 md:w-8">
-                    <RotateCw className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => setRotationAngle(rotationAngle + 1)} className="h-8 w-8">
+                    <RotateCw className="h-4 w-4" />
                 </Button>
                 <div className="w-px bg-muted-foreground/30 mx-0.5 md:mx-1" />
-                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="h-10 w-10 md:h-8 md:w-8">
-                    <ZoomOut className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="h-8 w-8">
+                    <ZoomOut className="h-4 w-4" />
                 </Button>
                 <span className="hidden md:flex items-center text-xs w-12 justify-center">{Math.round(zoomLevel * 100)}%</span>
-                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.min(10, zoomLevel + 0.1))} className="h-10 w-10 md:h-8 md:w-8">
-                    <ZoomIn className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => setZoomLevel(Math.min(10, zoomLevel + 0.1))} className="h-8 w-8">
+                    <ZoomIn className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="ghost" onClick={() => { setZoomLevel(1); setOffset({ x: 0, y: 0 }); setRotationAngle(0) }} className="h-10 w-10 md:h-8 md:w-8">
-                    <Maximize className="h-[18px] w-[18px] md:h-4 md:w-4" />
+                <Button size="icon" variant="ghost" onClick={() => { setZoomLevel(1); setOffset({ x: 0, y: 0 }); setRotationAngle(0) }} className="h-8 w-8">
+                    <Maximize className="h-4 w-4" />
                 </Button>
             </div>
         </div>
