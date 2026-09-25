@@ -63,11 +63,14 @@ self.addEventListener('fetch', (event) => {
                 forCompare.text(),
               ])
               // Only tell open tabs about an update when the page actually
-              // changed, not on every successful fetch.
+              // changed, not on every successful fetch. Skip the tab that is
+              // loading this response - it is already on the new version.
               if (oldText !== null && oldText !== newText) {
                 self.clients.matchAll().then((clients) => {
                   clients.forEach((client) => {
-                    client.postMessage({ type: 'SW_UPDATED' })
+                    if (client.id !== event.resultingClientId) {
+                      client.postMessage({ type: 'SW_UPDATED' })
+                    }
                   })
                 })
               }
