@@ -149,10 +149,12 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.code !== 'Space' || e.repeat) return
-            // Leave Space alone for text fields and focused controls
+            // Leave Space alone for text fields, and for buttons reached with the keyboard.
+            // A button that merely kept focus after a mouse click (e.g. a tool button) still pans.
             const target = e.target
             if (target instanceof HTMLElement &&
-                (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName))) {
+                (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+                    (target.tagName === 'BUTTON' && target.matches(':focus-visible')))) {
                 return
             }
             e.preventDefault()
@@ -874,8 +876,8 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const touch = e.touches[0]
             setTouchStartX(touch.clientX)
             setTouchStartTime(Date.now())
-            // Once zoomed in or panned, a one-finger drag is a pan, not a photo swipe
-            swipeCandidateRef.current = zoomLevel <= 1 && offset.x === 0 && offset.y === 0
+            // Once zoomed in, a one-finger drag is a pan, not a photo swipe
+            swipeCandidateRef.current = zoomLevel <= 1
             if (drawingMode === 'none') {
                 setIsTouchPanning(true)
                 setDragStart({ x: touch.clientX - offset.x, y: touch.clientY - offset.y })
