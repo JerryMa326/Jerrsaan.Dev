@@ -1001,7 +1001,7 @@ export function RegressionStudio() {
                     data: data.map(r => ({ x: r.concentration, y: r.residual })),
                     borderColor: channelColors[ch as ColorChannel],
                     backgroundColor: data.map(r =>
-                        Math.abs(r.standardizedResidual) > 2 ? '#f59e0b' : channelColors[ch as ColorChannel]
+                        r.isOutlier ? '#f59e0b' : channelColors[ch as ColorChannel]
                     ),
                     pointRadius: 6,
                     showLine: false
