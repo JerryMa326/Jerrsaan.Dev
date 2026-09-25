@@ -5,6 +5,8 @@ import { Trash2, ArrowUpDown, ArrowDown, ArrowUp, ArrowRight, ArrowLeft, X, Pipe
 import { rgbToCmyk, rgbToHsl, rgbToHsv } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
 import { getConfidenceColor } from '@/lib/confidenceUtils'
+import { resolveLabelEdit } from '@/lib/labelUtils'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 type SortDirection = 'top-to-bottom' | 'left-to-right'
 type SortOrder = 'ascending' | 'descending'
@@ -14,7 +16,8 @@ function EditableLabel({
     onChange,
 }: {
     value: string
-    onChange: (v: string) => void
+    /** Returns true when the edit was applied, false to have the input revert to `value`. */
+    onChange: (v: string) => boolean
 }) {
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState(value)
@@ -30,6 +33,12 @@ function EditableLabel({
             inputRef.current.select()
         }
     }, [editing])
+
+    const commit = () => {
+        const applied = onChange(draft)
+        if (!applied) setDraft(value)
+        setEditing(false)
+    }
 
     if (!editing) {
         return (
@@ -52,15 +61,9 @@ function EditableLabel({
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => {
-                onChange(draft)
-                setEditing(false)
-            }}
+            onBlur={commit}
             onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                    onChange(draft)
-                    setEditing(false)
-                }
+                if (e.key === 'Enter') commit()
                 if (e.key === 'Escape') {
                     setDraft(value)
                     setEditing(false)
@@ -76,12 +79,13 @@ export function ShapesList() {
     const {
         shapes, currentImageIndex, removeShape, updateShape, colorMode,
         selectedShapeId, setSelectedShapeId, setShapes,
-        rawRgbMode, colorCalibration, clearShapesForImage
+        rawRgbMode, colorCalibration, clearShapesForImage, setCommittedPoints
     } = useApp()
 
     const [showQuickSort, setShowQuickSort] = useState(false)
     const [sortDirection, setSortDirection] = useState<SortDirection>('top-to-bottom')
     const [sortOrder, setSortOrder] = useState<SortOrder>('ascending')
+    const [confirmClear, setConfirmClear] = useState(false)
 
     const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
 
@@ -170,7 +174,7 @@ export function ShapesList() {
                         size="sm"
                         variant="ghost"
                         className="h-6 rounded-full px-2.5 text-[11px] font-medium text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => clearShapesForImage(currentImageIndex)}
+                        onClick={() => setConfirmClear(true)}
                     >
                         <X className="h-3 w-3 mr-1" />
                         Clear
@@ -284,7 +288,22 @@ export function ShapesList() {
                                 <div className="flex items-center gap-1.5">
                                     <EditableLabel
                                         value={shape.label}
-                                        onChange={(v) => updateShape(shape.id, { label: v })}
+                                        onChange={(v) => {
+                                            const otherLabels = currentShapes
+                                                .filter(s => s.id !== shape.id)
+                                                .map(s => s.label)
+                                            const resolved = resolveLabelEdit(v, shape.label, otherLabels)
+                                            if (resolved === null) return false
+                                            if (resolved !== shape.label) {
+                                                updateShape(shape.id, { label: resolved })
+                                                // Regression concentrations are keyed by label, not shape id -
+                                                // move the committed point along with the rename in one action.
+                                                setCommittedPoints(prev => prev.map(p =>
+                                                    p.label === shape.label ? { ...p, label: resolved } : p
+                                                ))
+                                            }
+                                            return true
+                                        }}
                                     />
                                     {shape.confidence !== undefined && (
                                         <span
@@ -308,11 +327,13 @@ export function ShapesList() {
                                 </div>
                             </div>
 
-                            {/* Delete button — hover reveal */}
+                            {/* Delete button - hover reveal on pointer devices, always visible on touch
+                                (a hover-only button on a touchscreen is invisible but still tappable,
+                                so a tap near the row's edge deletes the sample with no visible undo) */}
                             <Button
                                 size="icon"
                                 variant="ghost"
-                                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
+                                className="h-7 w-7 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     removeShape(shape.id)
@@ -324,6 +345,18 @@ export function ShapesList() {
                     )
                 })}
             </div>
+
+            <ConfirmDialog
+                open={confirmClear}
+                message={`Clear all ${currentShapes.length} sample${currentShapes.length === 1 ? '' : 's'} on this image?`}
+                destructive
+                confirmText="Clear"
+                onConfirm={() => {
+                    clearShapesForImage(currentImageIndex)
+                    setConfirmClear(false)
+                }}
+                onCancel={() => setConfirmClear(false)}
+            />
         </div>
     )
 }
