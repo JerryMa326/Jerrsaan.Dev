@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import type { Shape, CommittedPoint, DetectionSettings, AppState } from '../types'
 import { defaultDetectionSettings } from '../types'
-import type { RegressionModel } from '../lib/regressionUtils'
+import type { RegressionModel, RegressionModelType } from '../lib/regressionUtils'
 import type { ColorCalibration } from '../lib/colorCalibration'
 import { defaultColorCalibration } from '../lib/colorCalibration'
 import { useUndoRedo } from '../hooks/useUndoRedo'
@@ -49,6 +49,11 @@ interface AppContextType extends AppState {
     setHeatmapMode: (mode: boolean) => void
     heatmapChannel: string
     setHeatmapChannel: (channel: string) => void
+    // Regression Studio choices, kept here so they survive tab switches and reloads
+    modelType: RegressionModelType | 'best'
+    setModelType: (type: RegressionModelType | 'best') => void
+    excludedPoints: Set<string>
+    setExcludedPoints: React.Dispatch<React.SetStateAction<Set<string>>>
     // Cache controls
     clearCache: () => Promise<void>
     saveCache: () => void
@@ -77,6 +82,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [colorCalibration, setColorCalibration] = useState<ColorCalibration>(defaultColorCalibration)
     const [heatmapMode, setHeatmapMode] = useState(false)
     const [heatmapChannel, setHeatmapChannel] = useState('magnitude')
+    const [modelType, setModelType] = useState<RegressionModelType | 'best'>('linear')
+    const [excludedPoints, setExcludedPoints] = useState<Set<string>>(() => new Set())
     const [isCacheLoaded, setIsCacheLoaded] = useState(false)
     const [lastSaveError, setLastSaveError] = useState<string | null>(null)
 
@@ -122,6 +129,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     }
                     setHeatmapMode(cachedState.heatmapMode ?? false)
                     setHeatmapChannel(cachedState.heatmapChannel ?? 'magnitude')
+                    setModelType(cachedState.modelType ?? 'linear')
+                    setExcludedPoints(new Set(cachedState.excludedPoints ?? []))
                 }
             } catch (error) {
                 console.error('Error restoring cache:', error)
@@ -152,13 +161,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             boundingBox,
             colorCalibration,
             heatmapMode,
-            heatmapChannel
+            heatmapChannel,
+            modelType,
+            excludedPoints: [...excludedPoints]
         })
     }, [
         images, shapes, regressionModels, committedPoints,
         detectionSettings, colorMode, rawRgbMode, currentImageIndex,
         isGridView, zoomLevel, rotationAngle, boundingBox, colorCalibration,
-        heatmapMode, heatmapChannel
+        heatmapMode, heatmapChannel, modelType, excludedPoints
     ])
 
     const clearCache = useCallback(async () => {
@@ -180,13 +191,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             boundingBox,
             colorCalibration,
             heatmapMode,
-            heatmapChannel
+            heatmapChannel,
+            modelType,
+            excludedPoints: [...excludedPoints]
         })
     }, [
         images, shapes, regressionModels, committedPoints,
         detectionSettings, colorMode, rawRgbMode, currentImageIndex,
         isGridView, zoomLevel, rotationAngle, boundingBox, colorCalibration,
-        heatmapMode, heatmapChannel
+        heatmapMode, heatmapChannel, modelType, excludedPoints
     ])
 
     // Undo/redo wrappers
@@ -239,6 +252,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCurrentImageIndex(0)
         setCommittedPoints([])
         setRegressionModels({})
+        setModelType('linear')
+        setExcludedPoints(new Set())
         setBoundingBox(null)
         setSelectedShapeId(null)
     }, [pushAndSet])
@@ -289,6 +304,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             colorCalibration, setColorCalibration,
             heatmapMode, setHeatmapMode,
             heatmapChannel, setHeatmapChannel,
+            modelType, setModelType,
+            excludedPoints, setExcludedPoints,
             undo, redo,
             canUndo: undoRedo.canUndo,
             canRedo: undoRedo.canRedo,
