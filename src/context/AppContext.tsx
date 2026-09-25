@@ -4,7 +4,7 @@ import { defaultDetectionSettings } from '../types'
 import type { RegressionModel } from '../lib/regressionUtils'
 import type { ColorCalibration } from '../lib/colorCalibration'
 import { defaultColorCalibration } from '../lib/colorCalibration'
-import { useUndoRedo } from '../hooks/useUndoRedo'
+import { useUndoRedo, getUndoShortcut } from '../hooks/useUndoRedo'
 import {
     loadCachedImages,
     loadCachedAppState,
@@ -59,10 +59,16 @@ interface AppContextType extends AppState {
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
 
+/** Frees the memory behind photos that were loaded from files */
+function releaseImages(images: (HTMLImageElement | undefined)[]): void {
+    for (const img of images) {
+        if (img?.src.startsWith('blob:')) URL.revokeObjectURL(img.src)
+    }
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
     const [images, setImages] = useState<HTMLImageElement[]>([])
     const [currentImageIndex, setCurrentImageIndex] = useState(0)
-    const [shapes, setShapesInternal] = useState<Shape[]>([])
     const [regressionModels, setRegressionModels] = useState<Record<string, RegressionModel>>({})
     const [committedPoints, setCommittedPoints] = useState<CommittedPoint[]>([])
     const [isGridView, setIsGridView] = useState(false)
@@ -80,8 +86,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [isCacheLoaded, setIsCacheLoaded] = useState(false)
     const [lastSaveError, setLastSaveError] = useState<string | null>(null)
 
-    const undoRedo = useUndoRedo()
+    // setShapesInternal replaces shapes without an undo step and clears history
+    const { shapes, edit: pushAndSet, reset: setShapesInternal, undo, redo, canUndo, canRedo } = useUndoRedo()
     const isInitializing = useRef(true)
+    const imagesRef = useRef(images)
+
+    useEffect(() => {
+        imagesRef.current = images
+    }, [images])
 
     // Register save error callback
     useEffect(() => {
@@ -132,7 +144,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         restoreCache()
-    }, [])
+    }, [setShapesInternal])
 
     // Auto-save state when it changes (debounced)
     useEffect(() => {
@@ -189,14 +201,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         heatmapMode, heatmapChannel
     ])
 
-    // Undo/redo wrappers
-    const pushAndSet = useCallback((updater: (prev: Shape[]) => Shape[]) => {
-        setShapesInternal(prev => {
-            undoRedo.pushState(prev)
-            return updater(prev)
-        })
-    }, [undoRedo])
-
     const setShapes: React.Dispatch<React.SetStateAction<Shape[]>> = useCallback((action) => {
         if (typeof action === 'function') {
             pushAndSet(action)
@@ -221,48 +225,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pushAndSet(prev => prev.filter(s => s.imageIndex !== imageIndex))
     }, [pushAndSet])
 
+    // Undo history only covers shapes, so removing photos starts it fresh:
+    // an older step would put shapes back on the wrong photo.
     const removeImage = useCallback((imageIndex: number) => {
+        releaseImages([imagesRef.current[imageIndex]])
         setImages(prev => prev.filter((_, i) => i !== imageIndex))
-        pushAndSet(prev =>
+        setShapesInternal(prev =>
             prev
                 .filter(s => s.imageIndex !== imageIndex)
                 .map(s => s.imageIndex > imageIndex ? { ...s, imageIndex: s.imageIndex - 1 } : s)
         )
-        if (currentImageIndex >= imageIndex && currentImageIndex > 0) {
-            setCurrentImageIndex(currentImageIndex - 1)
-        }
-    }, [currentImageIndex, pushAndSet])
+        setCurrentImageIndex(current => current >= imageIndex && current > 0 ? current - 1 : current)
+    }, [setShapesInternal])
 
     const clearAllImages = useCallback(() => {
+        releaseImages(imagesRef.current)
         setImages([])
-        pushAndSet(() => [])
+        setShapesInternal([])
         setCurrentImageIndex(0)
         setCommittedPoints([])
         setRegressionModels({})
         setBoundingBox(null)
         setSelectedShapeId(null)
-    }, [pushAndSet])
-
-    const undo = useCallback(() => {
-        const prev = undoRedo.undo(shapes)
-        if (prev) setShapesInternal(prev)
-    }, [undoRedo, shapes])
-
-    const redo = useCallback(() => {
-        const next = undoRedo.redo(shapes)
-        if (next) setShapesInternal(next)
-    }, [undoRedo, shapes])
+    }, [setShapesInternal])
 
     // Global keyboard shortcuts for undo/redo
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-                e.preventDefault()
-                if (e.shiftKey) {
-                    redo()
-                } else {
-                    undo()
-                }
+            const action = getUndoShortcut(e)
+            if (!action) return
+            e.preventDefault()
+            if (action === 'redo') {
+                redo()
+            } else {
+                undo()
             }
         }
         window.addEventListener('keydown', handler)
@@ -290,8 +286,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             heatmapMode, setHeatmapMode,
             heatmapChannel, setHeatmapChannel,
             undo, redo,
-            canUndo: undoRedo.canUndo,
-            canRedo: undoRedo.canRedo,
+            canUndo,
+            canRedo,
             clearCache, saveCache, isCacheLoaded,
             lastSaveError, clearSaveError: () => setLastSaveError(null)
         }}>
