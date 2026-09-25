@@ -654,7 +654,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         }
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e?: React.MouseEvent) => {
         // Finalize plate drag
         if (plateDragCorner) {
             setPlateDragCorner(null)
@@ -665,7 +665,14 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         // Finalize shape drag: one update (geometry + color), only if it moved
         if (shapeDragState) {
             const shape = shapes.find(s => s.id === shapeDragState.shapeId)
-            const geometry = dragPreview?.shapeId === shapeDragState.shapeId ? dragPreview.geometry : null
+            // Use the release point when there is one: the last mousemove may not have rendered yet
+            const { hit, startShape, startPt } = shapeDragState
+            const releasePt = e ? getImagePoint(e) : null
+            const geometry = releasePt
+                ? (releasePt.x === startPt.x && releasePt.y === startPt.y
+                    ? null
+                    : { ...startShape, ...computeShapeDrag(hit, startShape, startPt, releasePt) })
+                : dragPreview?.shapeId === shapeDragState.shapeId ? dragPreview.geometry : null
             const start = shapeDragState.startShape
             const moved = geometry && (Object.keys(geometry) as (keyof ShapeGeometry)[]).some(k => geometry[k] !== start[k])
             if (shape && geometry && moved && currentImage) {
