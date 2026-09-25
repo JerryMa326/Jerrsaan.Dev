@@ -10,6 +10,7 @@ import { isOpenCVReady } from '@/lib/opencvUtils'
 import { hitTestShape, getCursorForHit, type HitResult } from '@/hooks/useShapeDrag'
 import { computeHeatmapColor } from '@/lib/plateUtils'
 import type { PlateOverlayState } from '@/types'
+import { resizePlateFromCorner, type PlateCorner } from '@/lib/plateOverlayDrag'
 
 type ColorChannel = 'red' | 'green' | 'blue' | 'cyan' | 'magenta' | 'yellow' | 'black' | 'magnitude'
 
@@ -347,7 +348,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const { template, x: px, y: py, width: pw, height: ph, rotation: plateRot, wellRadiusFactor: wrf } = plateOverlay
             const cellW = pw / template.cols
             const cellH = ph / template.rows
-            const r = Math.min(cellW, cellH) * (wrf ?? 0.38)
+            const r = Math.max(0, Math.min(cellW, cellH) * (wrf ?? 0.38))
             const plateCX = px + pw / 2
             const plateCY = py + ph / 2
             const plateRad = ((plateRot ?? 0) * Math.PI) / 180
@@ -583,14 +584,9 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
 
             if (plateDragCorner === 'body') {
                 setPlateOverlay({ ...plateOverlay, x: o.x + dx, y: o.y + dy })
-            } else if (plateDragCorner === 'tl') {
-                setPlateOverlay({ ...plateOverlay, x: o.x + dx, y: o.y + dy, width: o.width - dx, height: o.height - dy })
-            } else if (plateDragCorner === 'tr') {
-                setPlateOverlay({ ...plateOverlay, y: o.y + dy, width: o.width + dx, height: o.height - dy })
-            } else if (plateDragCorner === 'bl') {
-                setPlateOverlay({ ...plateOverlay, x: o.x + dx, width: o.width - dx, height: o.height + dy })
-            } else if (plateDragCorner === 'br') {
-                setPlateOverlay({ ...plateOverlay, width: o.width + dx, height: o.height + dy })
+            } else {
+                // Resize in the plate's rotated frame, keeping the opposite corner fixed
+                setPlateOverlay({ ...plateOverlay, ...resizePlateFromCorner(o, plateDragCorner as PlateCorner, dx, dy) })
             }
             return
         }
