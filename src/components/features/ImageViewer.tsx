@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { useApp } from '@/context/AppContext'
 import type { Shape } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
@@ -12,6 +12,62 @@ import { computeHeatmapColor } from '@/lib/plateUtils'
 import type { PlateOverlayState } from '@/types'
 
 type ColorChannel = 'red' | 'green' | 'blue' | 'cyan' | 'magenta' | 'yellow' | 'black' | 'magnitude'
+
+/** Brightness/contrast (and optional CLAHE) applied to a copy of the image, for the on-screen preview. */
+function renderPreprocessedPreview(
+    image: HTMLImageElement,
+    brightness: number,
+    contrast: number,
+    claheEnabled: boolean,
+    claheClipLimit: number
+): HTMLCanvasElement {
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width
+    canvas.height = image.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(image, 0, 0)
+
+    if (brightness !== 0 || contrast !== 1.0) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const data = imageData.data
+
+        for (let i = 0; i < data.length; i += 4) {
+            data[i] = Math.max(0, Math.min(255, contrast * (data[i] - 128) + 128 + brightness))
+            data[i + 1] = Math.max(0, Math.min(255, contrast * (data[i + 1] - 128) + 128 + brightness))
+            data[i + 2] = Math.max(0, Math.min(255, contrast * (data[i + 2] - 128) + 128 + brightness))
+        }
+        ctx.putImageData(imageData, 0, 0)
+    }
+
+    if (claheEnabled && isOpenCVReady()) {
+        const cv = window.cv!
+        let src: OpenCVMat | null = null
+        let gray: OpenCVMat | null = null
+        let dst: OpenCVMat | null = null
+        let clahe: OpenCVCLAHE | null = null
+        try {
+            src = cv.imread(canvas)
+            gray = new cv.Mat()
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+
+            clahe = new cv.CLAHE(claheClipLimit, new cv.Size(8, 8))
+            clahe.apply(gray, gray)
+
+            dst = new cv.Mat()
+            cv.cvtColor(gray, dst, cv.COLOR_GRAY2RGBA)
+            cv.imshow(canvas, dst)
+        } catch (e) {
+            console.warn('CLAHE preview failed:', e)
+        } finally {
+            clahe?.delete()
+            src?.delete()
+            gray?.delete()
+            dst?.delete()
+        }
+    }
+
+    return canvas
+}
 
 interface ImageViewerProps {
     plateOverlay?: PlateOverlayState | null
@@ -72,58 +128,26 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         detectionSettings.claheEnabled ||
         detectionSettings.sharpenEnabled
 
-    const preprocessedImage = useMemo(() => {
-        if (!currentImage || !hasPreprocessing || !showPreprocessing) return null
-
-        const canvas = document.createElement('canvas')
-        canvas.width = currentImage.width
-        canvas.height = currentImage.height
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(currentImage, 0, 0)
-
-        if (detectionSettings.brightness !== 0 || detectionSettings.contrast !== 1.0) {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-            const data = imageData.data
-            const brightness = detectionSettings.brightness
-            const contrast = detectionSettings.contrast
-
-            for (let i = 0; i < data.length; i += 4) {
-                data[i] = Math.max(0, Math.min(255, contrast * (data[i] - 128) + 128 + brightness))
-                data[i + 1] = Math.max(0, Math.min(255, contrast * (data[i + 1] - 128) + 128 + brightness))
-                data[i + 2] = Math.max(0, Math.min(255, contrast * (data[i + 2] - 128) + 128 + brightness))
-            }
-            ctx.putImageData(imageData, 0, 0)
-        }
-
-        if (detectionSettings.claheEnabled && isOpenCVReady()) {
-            try {
-                const cv = window.cv!
-                const src = cv.imread(canvas)
-                const gray = new cv.Mat()
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
-
-                const clahe = new cv.CLAHE(detectionSettings.claheClipLimit, new cv.Size(8, 8))
-                clahe.apply(gray, gray)
-                clahe.delete()
-
-                const dst = new cv.Mat()
-                cv.cvtColor(gray, dst, cv.COLOR_GRAY2RGBA)
-                cv.imshow(canvas, dst)
-
-                src.delete()
-                gray.delete()
-                dst.delete()
-            } catch (e) {
-                console.warn('CLAHE preview failed:', e)
-            }
-        }
-
-        const img = new Image()
-        img.src = canvas.toDataURL()
-        return img
+    // Preprocessing preview, drawn straight from an offscreen canvas. While a
+    // slider is dragged it is recomputed at most once per frame, and the last
+    // result stays on screen until the new one is ready.
+    const [preprocessed, setPreprocessed] = useState<{ source: HTMLImageElement; canvas: HTMLCanvasElement } | null>(null)
+    useEffect(() => {
+        if (!currentImage || !hasPreprocessing || !showPreprocessing) return
+        const frame = requestAnimationFrame(() => {
+            setPreprocessed({
+                source: currentImage,
+                canvas: renderPreprocessedPreview(currentImage, detectionSettings.brightness, detectionSettings.contrast,
+                    detectionSettings.claheEnabled, detectionSettings.claheClipLimit)
+            })
+        })
+        return () => cancelAnimationFrame(frame)
     }, [currentImage, detectionSettings.brightness, detectionSettings.contrast,
         detectionSettings.claheEnabled, detectionSettings.claheClipLimit,
         hasPreprocessing, showPreprocessing])
+    const preprocessedImage = hasPreprocessing && showPreprocessing && preprocessed?.source === currentImage
+        ? preprocessed.canvas
+        : null
 
     const lastDetectionModeRef = useRef(detectionSettings.mode)
     useEffect(() => {
@@ -177,7 +201,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         ctx.scale(zoomLevel, zoomLevel)
         ctx.translate(-currentImage.width / 2 + offset.x / zoomLevel, -currentImage.height / 2 + offset.y / zoomLevel)
 
-        const displayImage = (preprocessedImage && preprocessedImage.complete) ? preprocessedImage : currentImage
+        const displayImage = preprocessedImage ?? currentImage
         ctx.drawImage(displayImage, 0, 0)
 
         if (boundingBox) {
@@ -434,25 +458,38 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         draw()
     }, [draw])
 
+    // Latest draw() for the resize observer, which is set up once
+    const drawRef = useRef(draw)
     useEffect(() => {
-        if (!preprocessedImage) return
-        const handler = () => draw()
-        preprocessedImage.addEventListener('load', handler)
-        return () => preprocessedImage.removeEventListener('load', handler)
-    }, [preprocessedImage, draw])
+        drawRef.current = draw
+    }, [draw])
 
     useEffect(() => {
-        const handleResize = () => {
-            if (containerRef.current && canvasRef.current) {
-                canvasRef.current.width = containerRef.current.clientWidth
-                canvasRef.current.height = containerRef.current.clientHeight
-                draw()
-            }
+        const container = containerRef.current
+        if (!container) return
+        // Resizing a canvas clears it, so only touch width/height on a real size change
+        const syncSize = () => {
+            const canvas = canvasRef.current
+            if (!canvas) return
+            const w = container.clientWidth
+            const h = container.clientHeight
+            if (canvas.width === w && canvas.height === h) return
+            canvas.width = w
+            canvas.height = h
+            drawRef.current()
         }
-        window.addEventListener('resize', handleResize)
-        handleResize()
-        return () => window.removeEventListener('resize', handleResize)
-    }, [draw])
+        syncSize()
+        let frame = 0
+        const observer = new ResizeObserver(() => {
+            cancelAnimationFrame(frame)
+            frame = requestAnimationFrame(syncSize)
+        })
+        observer.observe(container)
+        return () => {
+            observer.disconnect()
+            cancelAnimationFrame(frame)
+        }
+    }, [])
 
     const getImagePoint = (e: React.MouseEvent) => {
         const canvas = canvasRef.current
