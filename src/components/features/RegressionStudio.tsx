@@ -12,7 +12,7 @@ import { parseConcentrationCSV } from '@/lib/plateUtils'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
-    computeRSE, computeResiduals,
+    computeRSE, computeResiduals, concentrationUncertainty,
     type RegressionModel, type RegressionModelType, type ResidualPoint
 } from '@/lib/regressionUtils'
 import {
@@ -561,7 +561,7 @@ export function RegressionStudio() {
                 (cmyk[0] * 100).toFixed(1), (cmyk[1] * 100).toFixed(1), (cmyk[2] * 100).toFixed(1), (cmyk[3] * 100).toFixed(1),
                 mag.toFixed(2),
                 committed?.y ?? '',
-                predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : ''
+                predicted !== null && Number.isFinite(predicted) ? predicted.toFixed(3) : ''
             ].join(',')
         })
 
@@ -588,7 +588,7 @@ export function RegressionStudio() {
                 committed ? 'standard' : 'unknown',
                 c[0], c[1], c[2],
                 committed?.y ?? '',
-                predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : ''
+                predicted !== null && Number.isFinite(predicted) ? predicted.toFixed(3) : ''
             ].join('\t')
         })
         const text = [headers.join('\t'), ...rows].join('\n')
@@ -716,7 +716,7 @@ export function RegressionStudio() {
         // Title
         ctx.fillStyle = '#ffffff'
         ctx.font = 'bold 16px system-ui, sans-serif'
-        ctx.fillText('ChemClub Analyst — Regression Charts', padding, 28)
+        ctx.fillText('ChemClub Analyst - Regression Charts', padding, 28)
 
         canvases.forEach((canvas, i) => {
             const col = i % cols
@@ -1139,12 +1139,17 @@ export function RegressionStudio() {
                                                 />
                                             </td>
                                             <td className={`p-1.5 font-mono text-[10px] ${!committed && model ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                                                {predicted !== null && !isNaN(predicted) ? (
+                                                {predicted !== null && Number.isFinite(predicted) ? (
                                                     <>
                                                         {predicted.toFixed(3)}
-                                                        {!committed && rseValue !== null && isFinite(rseValue) && (
-                                                            <span className="text-muted-foreground/50"> &plusmn;{rseValue.toFixed(1)}</span>
-                                                        )}
+                                                        {(() => {
+                                                            // RSE is in color units; convert to concentration through the curve's slope
+                                                            const sigma = !committed && model && rseValue !== null
+                                                                ? concentrationUncertainty(model, predicted, rseValue) : null
+                                                            return sigma !== null && (
+                                                                <span className="text-muted-foreground/50"> &plusmn;{sigma.toFixed(3)}</span>
+                                                            )
+                                                        })()}
                                                     </>
                                                 ) : '\u2014'}
                                             </td>
@@ -1211,7 +1216,7 @@ export function RegressionStudio() {
                                 <div key={ch} className="bg-card border rounded-lg p-3">
                                     <div className="flex items-center justify-between mb-2">
                                         <h4 className="text-xs font-semibold capitalize" style={{ color: channelColors[ch] }}>
-                                            {ch}{multiModelMode ? ' — Model Comparison' : ''}
+                                            {ch}{multiModelMode ? ' - Model Comparison' : ''}
                                         </h4>
                                         {!multiModelMode && regressionModels[ch] && (
                                             <span className="text-[10px] text-muted-foreground">

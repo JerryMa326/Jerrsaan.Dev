@@ -10,6 +10,7 @@ import {
     formatEquation,
     computeRSE,
     computeResiduals,
+    concentrationUncertainty,
 } from '@/lib/regressionUtils'
 import type { LinearModel, QuadraticModel, PowerModel, LogarithmicModel } from '@/lib/regressionUtils'
 
@@ -180,10 +181,10 @@ describe('evaluateModel', () => {
         expect(evaluateModel(model, 3)).toBeCloseTo(54)
     })
 
-    it('evaluates a power model with x <= 0 returning 0', () => {
+    it('evaluates a power model with x <= 0 returning NaN (outside its domain)', () => {
         const model: PowerModel = { type: 'power', a: 2, b: 3, r2: 1 }
-        expect(evaluateModel(model, 0)).toBe(0)
-        expect(evaluateModel(model, -1)).toBe(0)
+        expect(evaluateModel(model, 0)).toBeNaN()
+        expect(evaluateModel(model, -1)).toBeNaN()
     })
 
     it('evaluates a logarithmic model', () => {
@@ -192,10 +193,10 @@ describe('evaluateModel', () => {
         expect(evaluateModel(model, Math.E)).toBeCloseTo(15)
     })
 
-    it('evaluates a logarithmic model with x <= 0 returning 0', () => {
+    it('evaluates a logarithmic model with x <= 0 returning NaN (outside its domain)', () => {
         const model: LogarithmicModel = { type: 'logarithmic', a: 5, b: 10, r2: 1 }
-        expect(evaluateModel(model, 0)).toBe(0)
-        expect(evaluateModel(model, -1)).toBe(0)
+        expect(evaluateModel(model, 0)).toBeNaN()
+        expect(evaluateModel(model, -1)).toBeNaN()
     })
 })
 
@@ -369,5 +370,145 @@ describe('computeResiduals', () => {
         expect(result[0]).toHaveProperty('predicted')
         expect(result[0]).toHaveProperty('residual')
         expect(result[0]).toHaveProperty('standardizedResidual')
+    })
+})
+
+// ─── Model selection, domains, outliers, inverse prediction ────────────────────
+
+// Seeded PRNG so the model-selection trials are deterministic
+function mulberry32(seed: number) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6D2B79F5) | 0
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+}
+function gaussian(rand: () => number) {
+    return Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand())
+}
+
+describe('fitBest model selection', () => {
+    it('picks linear for truly linear noisy data in the vast majority of trials', () => {
+        const rand = mulberry32(42)
+        for (const xs of [[0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5], [0.5, 1, 2, 4, 8, 16]]) {
+            let linearWins = 0
+            const trials = 1000
+            for (let t = 0; t < trials; t++) {
+                const ys = xs.map(x => 200 - 12 * x + 3 * gaussian(rand))
+                if (fitBest(xs, ys)!.type === 'linear') linearWins++
+            }
+            expect(linearWins / trials).toBeGreaterThan(0.9)
+        }
+    })
+
+    it('still picks quadratic for clearly curved data', () => {
+        const rand = mulberry32(7)
+        const xs = [0, 1, 2, 3, 4, 5]
+        let quadWins = 0
+        const trials = 200
+        for (let t = 0; t < trials; t++) {
+            const ys = xs.map(x => 220 - 60 * x + 6 * x * x + 1.5 * gaussian(rand))
+            if (fitBest(xs, ys)!.type === 'quadratic') quadWins++
+        }
+        expect(quadWins / trials).toBeGreaterThan(0.95)
+        expect(fitBest([0, 1, 2, 3, 4], [0, 1, 4, 9, 16])!.type).toBe('quadratic')
+    })
+
+    it('only considers power/log when every point is inside their domain', () => {
+        // A blank standard at x = 0 rules out power and logarithmic
+        const xs = [0, 1, 2, 3, 4, 5]
+        const ys = [5, 100, 130, 150, 160, 170]
+        const type = fitBest(xs, ys)!.type
+        expect(type === 'linear' || type === 'quadratic').toBe(true)
+    })
+})
+
+describe('power / logarithmic outside their domain', () => {
+    const xs = [0, 1, 2, 3, 4, 5]
+    const ys = [200, 180, 160, 140, 120, 100]
+
+    it('computes R2 only over points the model can describe', () => {
+        expect(fitPower(xs, ys)!.r2).toBeGreaterThan(0.8)
+        expect(fitLogarithmic(xs, ys)!.r2).toBeGreaterThan(0.8)
+    })
+
+    it('evaluateModel returns NaN at x <= 0', () => {
+        expect(evaluateModel(fitPower(xs, ys)!, 0)).toBeNaN()
+        expect(evaluateModel(fitLogarithmic(xs, ys)!, -1)).toBeNaN()
+    })
+
+    it('RSE and residuals leave out the blank instead of counting its full value', () => {
+        const power = fitPower(xs, ys)!
+        expect(computeRSE(power, xs, ys)).toBeLessThan(20)
+        const residuals = computeResiduals(power, xs.map((x, i) => ({ label: `p${i}`, x, y: ys[i] })))
+        expect(residuals.map(r => r.label)).not.toContain('p0')
+        residuals.forEach(r => expect(Number.isFinite(r.residual)).toBe(true))
+    })
+})
+
+describe('computeResiduals outlier flag', () => {
+    it('flags a gross outlier in a 6-point linear calibration', () => {
+        const xs = [0, 1, 2, 3, 4, 5]
+        const ys = [200, 190, 100, 170, 160, 150]
+        const model = fitLinear(xs, ys)!
+        const residuals = computeResiduals(model, xs.map((x, i) => ({ label: `x${x}`, x, y: ys[i] })))
+        const flagged = residuals.filter(r => Math.abs(r.standardizedResidual) > 2).map(r => r.label)
+        expect(flagged).toEqual(['x2'])
+    })
+
+    it('does not flag anything on clean noisy data', () => {
+        const xs = [0, 1, 2, 3, 4, 5]
+        const ys = [200.5, 189.2, 180.9, 169.4, 160.8, 149.6]
+        const model = fitLinear(xs, ys)!
+        const residuals = computeResiduals(model, xs.map((x, i) => ({ label: `x${x}`, x, y: ys[i] })))
+        expect(residuals.some(r => Math.abs(r.standardizedResidual) > 2)).toBe(false)
+    })
+})
+
+describe('predict quadratic root choice', () => {
+    it('returns the root inside the calibration range when the vertex lies between 0 and the data', () => {
+        // Standards at x = 1..3 on y = (x - 0.8)^2 + 10; the mirror root of x = 1.2 sits at 0.4
+        const xs = [1, 1.5, 2, 2.5, 3]
+        const ys = xs.map(x => (x - 0.8) ** 2 + 10)
+        const model = fitQuadratic(xs, ys)!
+        expect(predict(model, evaluateModel(model, 1.2))).toBeCloseTo(1.2, 5)
+    })
+
+    it('picks the root on the data side of the vertex when extrapolating', () => {
+        const xs = [1, 2, 3, 4]
+        const ys = xs.map(x => (x + 1) ** 2)
+        const model = fitQuadratic(xs, ys)!
+        // y = 0.25 has roots -0.5 and -1.5; -0.5 lies on the data side of the vertex at -1
+        expect(predict(model, 0.25)).toBeCloseTo(-0.5, 5)
+    })
+
+    it('returns null when the curve turns inside the range and neither root is in it', () => {
+        const model: QuadraticModel = { type: 'quadratic', a: -1, b: 4, c: 0, r2: 1, xMin: 1, xMax: 3 }
+        // Vertex at x = 2 (y = 4); y = 1 crosses at 0.27 and 3.73, both outside [1, 3]
+        expect(predict(model, 1)).toBeNull()
+    })
+
+    it('still works for models saved before the x-range was stored', () => {
+        const model: QuadraticModel = { type: 'quadratic', a: 1, b: 0, c: 0, r2: 1 }
+        expect(predict(model, 9)).toBeCloseTo(3)
+    })
+})
+
+describe('concentrationUncertainty', () => {
+    it('converts the color-unit RSE to concentration units through the slope', () => {
+        const model: LinearModel = { type: 'linear', m: -20, b: 200, r2: 0.99 }
+        expect(concentrationUncertainty(model, 3, 4)).toBeCloseTo(0.2)
+    })
+
+    it('uses the local slope of a curve', () => {
+        const model: QuadraticModel = { type: 'quadratic', a: 1, b: 0, c: 0, r2: 1 }
+        // dy/dx at x = 5 is 10
+        expect(concentrationUncertainty(model, 5, 2)).toBeCloseTo(0.2)
+    })
+
+    it('returns null when the curve is flat', () => {
+        const model: LinearModel = { type: 'linear', m: 0, b: 200, r2: 0 }
+        expect(concentrationUncertainty(model, 3, 4)).toBeNull()
     })
 })

@@ -1,11 +1,22 @@
 export type RegressionModelType = 'linear' | 'quadratic' | 'power' | 'logarithmic'
 
 export interface LinearModel { type: 'linear'; m: number; b: number; r2: number }
-export interface QuadraticModel { type: 'quadratic'; a: number; b: number; c: number; r2: number }
+// xMin/xMax: concentration range of the standards, used to pick the right root when inverting.
+// Optional so models cached or exported before it was stored still load.
+export interface QuadraticModel { type: 'quadratic'; a: number; b: number; c: number; r2: number; xMin?: number; xMax?: number }
 export interface PowerModel { type: 'power'; a: number; b: number; r2: number }
 export interface LogarithmicModel { type: 'logarithmic'; a: number; b: number; r2: number }
 
 export type RegressionModel = LinearModel | QuadraticModel | PowerModel | LogarithmicModel
+
+function paramCount(type: RegressionModelType): number {
+    return type === 'quadratic' ? 3 : 2
+}
+
+// Power and logarithmic models are only defined for x > 0
+function inDomain(type: RegressionModelType, x: number): boolean {
+    return type === 'linear' || type === 'quadratic' || x > 0
+}
 
 function computeR2(actual: number[], predicted: number[]): number {
     const mean = actual.reduce((a, b) => a + b, 0) / actual.length
@@ -83,7 +94,10 @@ export function fitQuadratic(xs: number[], ys: number[]): QuadraticModel | null 
 
     const [a, b, c] = coeffs
     const predicted = xs.map(x => a * x * x + b * x + c)
-    return { type: 'quadratic', a, b, c, r2: computeR2(ys, predicted) }
+    return {
+        type: 'quadratic', a, b, c, r2: computeR2(ys, predicted),
+        xMin: Math.min(...xs), xMax: Math.max(...xs)
+    }
 }
 
 export function fitPower(xs: number[], ys: number[]): PowerModel | null {
@@ -99,8 +113,10 @@ export function fitPower(xs: number[], ys: number[]): PowerModel | null {
 
     const a = Math.exp(linear.b)
     const b = linear.m
-    const predicted = xs.map(x => x > 0 ? a * Math.pow(x, b) : 0)
-    return { type: 'power', a, b, r2: computeR2(ys, predicted) }
+    // R^2 in original units, over the points the model is defined at (x > 0)
+    const domain = xs.map((x, i) => ({ x, y: ys[i] })).filter(p => p.x > 0)
+    const predicted = domain.map(p => a * Math.pow(p.x, b))
+    return { type: 'power', a, b, r2: computeR2(domain.map(p => p.y), predicted) }
 }
 
 export function fitLogarithmic(xs: number[], ys: number[]): LogarithmicModel | null {
@@ -114,31 +130,86 @@ export function fitLogarithmic(xs: number[], ys: number[]): LogarithmicModel | n
     const linear = fitLinear(lnX, validY)
     if (!linear) return null
 
-    const a = linear.m
-    const b = linear.b
-    const predicted = xs.map(x => x > 0 ? a * Math.log(x) + b : 0)
-    return { type: 'logarithmic', a, b, r2: computeR2(ys, predicted) }
+    return { type: 'logarithmic', a: linear.m, b: linear.b, r2: linear.r2 }
 }
 
+// Upper 5% critical values of F(1, df) for df = 1..30; beyond that it is ~4
+const F_CRIT_05 = [
+    161.45, 18.51, 10.13, 7.71, 6.61, 5.99, 5.59, 5.32, 5.12, 4.96,
+    4.84, 4.75, 4.67, 4.60, 4.54, 4.49, 4.45, 4.41, 4.38, 4.35,
+    4.32, 4.30, 4.28, 4.26, 4.24, 4.23, 4.21, 4.20, 4.18, 4.17
+]
+
 export function fitBest(xs: number[], ys: number[]): RegressionModel | null {
-    const models = [
+    const n = xs.length
+    const sse = (model: RegressionModel) =>
+        xs.reduce((acc, x, i) => acc + (ys[i] - evaluateModel(model, x)) ** 2, 0)
+
+    // Two-parameter candidates, scored on the SAME points. Power and log only
+    // qualify when every point is inside their domain.
+    const allXPositive = xs.every(x => x > 0)
+    const twoParam = [
         fitLinear(xs, ys),
-        fitQuadratic(xs, ys),
-        fitPower(xs, ys),
-        fitLogarithmic(xs, ys)
+        allXPositive ? fitLogarithmic(xs, ys) : null,
+        allXPositive && ys.every(y => y > 0) ? fitPower(xs, ys) : null
     ].filter(Boolean) as RegressionModel[]
 
-    if (models.length === 0) return null
-    return models.reduce((best, m) => m.r2 > best.r2 ? m : best)
+    let best: RegressionModel | null = null
+    let bestSSE = Infinity
+    for (const m of twoParam) {
+        const s = sse(m)
+        // Equal parameter counts, so the smaller residual wins; ties go to the simpler form listed first
+        if (Number.isFinite(s) && s < bestSSE * (1 - 1e-9)) { best = m; bestSSE = s }
+    }
+
+    // Quadratic always fits at least as well as linear (it contains it), so it has to
+    // earn its extra parameter: keep it only when the drop in residual is significant
+    // at the 5% level (partial F-test with 1 and n - 3 degrees of freedom).
+    const quad = n >= 4 ? fitQuadratic(xs, ys) : null
+    if (quad) {
+        const quadSSE = sse(quad)
+        const df = n - 3
+        const fCrit = F_CRIT_05[df - 1] ?? 3.84
+        const scale = ys.reduce((acc, y) => acc + y * y, 0)
+        const exact = quadSSE <= 1e-20 * scale
+        const f = exact ? Infinity : (bestSSE - quadSSE) / (quadSSE / df)
+        const bestIsExact = best !== null && bestSSE <= 1e-20 * scale
+        if (!best || (!bestIsExact && f > fCrit)) best = quad
+    }
+
+    return best
 }
 
 export function evaluateModel(model: RegressionModel, x: number): number {
     switch (model.type) {
         case 'linear': return model.m * x + model.b
         case 'quadratic': return model.a * x * x + model.b * x + model.c
-        case 'power': return x > 0 ? model.a * Math.pow(x, model.b) : 0
-        case 'logarithmic': return x > 0 ? model.a * Math.log(x) + model.b : 0
+        case 'power': return x > 0 ? model.a * Math.pow(x, model.b) : NaN
+        case 'logarithmic': return x > 0 ? model.a * Math.log(x) + model.b : NaN
     }
+}
+
+function pickQuadraticRoot(model: QuadraticModel, roots: [number, number]): number | null {
+    const [lo, hi] = roots[0] <= roots[1] ? roots : [roots[1], roots[0]]
+    const vertex = -model.b / (2 * model.a)
+    const { xMin, xMax } = model
+    if (xMin === undefined || xMax === undefined) {
+        // Older saved models have no range. Standards are at x >= 0, so when the
+        // vertex is at or left of 0 the data is on the right-hand branch.
+        if (vertex <= 0) return hi
+        if (lo >= 0) return lo
+        return hi >= 0 ? hi : null
+    }
+    const inRange = (r: number) => r >= xMin && r <= xMax
+    // The branch of the parabola that holds most of the calibration range
+    const dataOnRight = xMax - vertex >= vertex - xMin
+    if (inRange(lo) && inRange(hi)) return dataOnRight ? hi : lo
+    if (inRange(lo)) return lo
+    if (inRange(hi)) return hi
+    // Extrapolating: only trust it when the whole range sits on one branch
+    if (vertex <= xMin) return hi
+    if (vertex >= xMax) return lo
+    return null
 }
 
 export function predict(model: RegressionModel, colorValue: number): number | null {
@@ -151,18 +222,12 @@ export function predict(model: RegressionModel, colorValue: number): number | nu
         case 'quadratic': {
             // a*x^2 + b*x + (c - colorValue) = 0
             const { a, b, c } = model
+            if (Math.abs(a) < 1e-10) return Math.abs(b) > 1e-10 ? (colorValue - c) / b : null
             const disc = b * b - 4 * a * (c - colorValue)
-            if (disc < 0 || Math.abs(a) < 1e-10) {
-                if (Math.abs(a) < 1e-10) return Math.abs(b) > 1e-10 ? (colorValue - c) / b : null
-                return null
-            }
+            if (disc < 0) return null
             const x1 = (-b + Math.sqrt(disc)) / (2 * a)
             const x2 = (-b - Math.sqrt(disc)) / (2 * a)
-            // Return the non-negative root, prefer positive
-            if (x1 >= 0 && x2 >= 0) return Math.min(x1, x2)
-            if (x1 >= 0) return x1
-            if (x2 >= 0) return x2
-            return x1 // both negative, return one closer to 0
+            return pickQuadraticRoot(model, [x1, x2])
         }
         case 'power': {
             // colorValue = a * x^b => x = (colorValue/a)^(1/b)
@@ -179,11 +244,34 @@ export function predict(model: RegressionModel, colorValue: number): number | nu
     }
 }
 
+// Slope dy/dx of the calibration curve at concentration x
+function slopeAt(model: RegressionModel, x: number): number {
+    switch (model.type) {
+        case 'linear': return model.m
+        case 'quadratic': return 2 * model.a * x + model.b
+        case 'power': return x > 0 ? model.a * model.b * Math.pow(x, model.b - 1) : NaN
+        case 'logarithmic': return x > 0 ? model.a / x : NaN
+    }
+}
+
+/**
+ * Converts the residual standard error (color units) into an uncertainty in
+ * concentration at x, via the local slope: sigma_x ~= RSE / |dy/dx|.
+ * Returns null where the curve is flat or undefined.
+ */
+export function concentrationUncertainty(model: RegressionModel, x: number, rse: number): number | null {
+    const slope = Math.abs(slopeAt(model, x))
+    if (!Number.isFinite(slope) || slope < 1e-10 || !Number.isFinite(rse)) return null
+    const sigma = rse / slope
+    return Number.isFinite(sigma) ? sigma : null
+}
+
 export function computeRSE(model: RegressionModel, xs: number[], actuals: number[]): number {
-    const n = xs.length
-    const p = model.type === 'quadratic' ? 3 : 2
+    const inside = xs.map((x, i) => ({ x, y: actuals[i] })).filter(p => inDomain(model.type, p.x))
+    const n = inside.length
+    const p = paramCount(model.type)
     if (n <= p) return Infinity
-    const ssRes = actuals.reduce((acc, y, i) => acc + (y - evaluateModel(model, xs[i])) ** 2, 0)
+    const ssRes = inside.reduce((acc, pt) => acc + (pt.y - evaluateModel(model, pt.x)) ** 2, 0)
     return Math.sqrt(ssRes / (n - p))
 }
 
@@ -196,27 +284,87 @@ export interface ResidualPoint {
     standardizedResidual: number
 }
 
+// Leverages h_ii = diag(X (X'X)^-1 X') for design matrix rows; null if X'X is singular
+function leverages(rows: number[][]): number[] | null {
+    const p = rows[0]?.length ?? 0
+    // Augmented [X'X | I], inverted by Gauss-Jordan with partial pivoting
+    const A = Array.from({ length: p }, (_, i) =>
+        Array.from({ length: 2 * p }, (_, j) =>
+            j < p ? rows.reduce((acc, r) => acc + r[i] * r[j], 0) : (j - p === i ? 1 : 0)))
+    for (let col = 0; col < p; col++) {
+        let maxRow = col
+        for (let row = col + 1; row < p; row++) {
+            if (Math.abs(A[row][col]) > Math.abs(A[maxRow][col])) maxRow = row
+        }
+        [A[col], A[maxRow]] = [A[maxRow], A[col]]
+        const pivot = A[col][col]
+        if (Math.abs(pivot) < 1e-12) return null
+        for (let j = 0; j < 2 * p; j++) A[col][j] /= pivot
+        for (let row = 0; row < p; row++) {
+            if (row === col) continue
+            const factor = A[row][col]
+            for (let j = 0; j < 2 * p; j++) A[row][j] -= factor * A[col][j]
+        }
+    }
+    return rows.map(r => {
+        let h = 0
+        for (let i = 0; i < p; i++) for (let j = 0; j < p; j++) h += r[i] * A[i][p + j] * r[j]
+        return h
+    })
+}
+
+/**
+ * Residuals over the points inside the model's domain. standardizedResidual is the
+ * externally studentized (deleted) residual t_i = e_i / (s_(i) * sqrt(1 - h_ii)),
+ * so a single bad standard is not able to hide itself by inflating the error
+ * estimate. Leverage comes from the model's design matrix (in ln x for power/log).
+ */
 export function computeResiduals(
     model: RegressionModel,
     points: { label: string; x: number; y: number }[]
 ): ResidualPoint[] {
-    const n = points.length
-    const p = model.type === 'quadratic' ? 3 : 2
-    const residuals = points.map(pt => ({
-        label: pt.label,
-        concentration: pt.x,
-        observed: pt.y,
-        predicted: evaluateModel(model, pt.x),
-        residual: pt.y - evaluateModel(model, pt.x),
-        standardizedResidual: 0
-    }))
+    const inside = points.filter(pt => inDomain(model.type, pt.x))
+    const n = inside.length
+    const p = paramCount(model.type)
+    const residuals = inside.map(pt => {
+        const predicted = evaluateModel(model, pt.x)
+        return {
+            label: pt.label,
+            concentration: pt.x,
+            observed: pt.y,
+            predicted,
+            residual: pt.y - predicted,
+            standardizedResidual: 0
+        }
+    })
+
+    // The deleted variance needs at least one degree of freedom left after dropping a point
+    if (n - p - 1 < 1) return residuals
+
+    const designRow = (x: number): number[] => {
+        switch (model.type) {
+            case 'linear': return [1, x]
+            case 'quadratic': return [1, x, x * x]
+            case 'power':
+            case 'logarithmic': return [1, Math.log(x)]
+        }
+    }
+    const h = leverages(inside.map(pt => designRow(pt.x)))
+    if (!h) return residuals
 
     const ssRes = residuals.reduce((acc, r) => acc + r.residual ** 2, 0)
-    const rse = n > p ? Math.sqrt(ssRes / (n - p)) : 1
-
-    for (const r of residuals) {
-        r.standardizedResidual = rse > 0 ? r.residual / rse : 0
-    }
+    const tiny = 1e-12 * (ssRes + residuals.reduce((acc, r) => acc + r.observed ** 2, 0))
+    residuals.forEach((r, i) => {
+        const oneMinusH = 1 - h[i]
+        if (oneMinusH <= 1e-10) return
+        const deletedVar = Math.max(0, (ssRes - r.residual ** 2 / oneMinusH) / (n - p - 1))
+        if (deletedVar <= tiny) {
+            // Every other point sits exactly on the curve
+            r.standardizedResidual = r.residual ** 2 > tiny ? Math.sign(r.residual) * Infinity : 0
+            return
+        }
+        r.standardizedResidual = r.residual / (Math.sqrt(deletedVar) * Math.sqrt(oneMinusH))
+    })
 
     return residuals
 }
