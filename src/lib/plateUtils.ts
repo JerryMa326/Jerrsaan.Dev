@@ -123,30 +123,115 @@ function extractCircleColor(
     ]
 }
 
+interface CsvField {
+    value: string
+    quoted: boolean
+}
+
+/**
+ * Split delimited text into rows of fields.
+ * Handles "quoted" fields (which may contain the delimiter or newlines), "" escapes,
+ * and CRLF / LF / CR line endings.
+ */
+function splitDelimited(text: string, delimiter: string): CsvField[][] {
+    const rows: CsvField[][] = []
+    let row: CsvField[] = []
+    let value = ''
+    let quoted = false
+    let inQuotes = false
+
+    const endField = () => {
+        row.push({ value, quoted })
+        value = ''
+        quoted = false
+    }
+    const endRow = () => {
+        endField()
+        rows.push(row)
+        row = []
+    }
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i]
+        if (inQuotes) {
+            if (ch !== '"') {
+                value += ch
+            } else if (text[i + 1] === '"') {
+                value += '"'
+                i++
+            } else {
+                inQuotes = false
+            }
+        } else if (ch === delimiter) {
+            endField()
+        } else if (ch === '\r' || ch === '\n') {
+            if (ch === '\r' && text[i + 1] === '\n') i++
+            endRow()
+        } else if (ch === '"' && !quoted && value.trim() === '') {
+            // Opening quote (leading whitespace before it is dropped)
+            value = ''
+            quoted = true
+            inQuotes = true
+        } else if (!quoted) {
+            // Characters after a closing quote are ignored
+            value += ch
+        }
+    }
+    if (value !== '' || quoted || row.length > 0) endRow()
+
+    return rows
+}
+
+function isBlankRow(row: CsvField[]): boolean {
+    return row.every(f => !f.quoted && f.value.trim() === '')
+}
+
+/** Pick tab, semicolon or comma: whichever splits the most lines into at least two fields */
+function detectDelimiter(text: string): string {
+    let best = ','
+    let bestCount = 0
+    for (const candidate of ['\t', ';', ',']) {
+        const rows = splitDelimited(text, candidate).filter(r => !isBlankRow(r)).slice(0, 20)
+        const count = rows.filter(r => r.length >= 2).length
+        if (count > bestCount) {
+            best = candidate
+            bestCount = count
+        }
+    }
+    return best
+}
+
+function cleanField(field: CsvField): string {
+    const trimmed = field.value.trim()
+    return field.quoted ? trimmed : trimmed.replace(/^'|'$/g, '')
+}
+
+/** Parse a whole-field number; a comma decimal ("0,5") is accepted when allowed */
+function parseNumber(raw: string, allowCommaDecimal: boolean): number | null {
+    let s = raw
+    if (allowCommaDecimal && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(s)) s = s.replace(',', '.')
+    if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return null
+    const n = Number(s)
+    return Number.isFinite(n) ? n : null
+}
+
 export function parseConcentrationCSV(text: string): { label: string; concentration: number }[] {
     // Strip BOM
-    const cleaned = text.replace(/^\uFEFF/, '').trim()
-    if (!cleaned) return []
+    const cleaned = text.replace(/^\uFEFF/, '')
+    if (!cleaned.trim()) return []
 
-    const lines = cleaned.split(/\r?\n/).map(l => l.trim()).filter(l => l)
-    if (lines.length === 0) return []
-
-    // Detect delimiter: tab or comma
-    const delimiter = lines[0].includes('\t') ? '\t' : ','
-
+    const delimiter = detectDelimiter(cleaned)
     const results: { label: string; concentration: number }[] = []
 
-    for (let i = 0; i < lines.length; i++) {
-        const parts = lines[i].split(delimiter).map(p => p.trim().replace(/^["']|["']$/g, ''))
-        if (parts.length < 2) continue
+    for (const row of splitDelimited(cleaned, delimiter)) {
+        if (row.length < 2) continue
 
-        const label = parts[0]
-        const value = parseFloat(parts[1])
+        const label = cleanField(row[0])
+        // A comma can only be a decimal separator when it is not the delimiter, or inside quotes
+        const value = parseNumber(cleanField(row[1]), delimiter !== ',' || row[1].quoted)
 
-        // Skip header row (if label column header is non-numeric and value is NaN)
-        if (i === 0 && isNaN(value) && !/^\d/.test(label)) continue
-
-        if (!isNaN(value) && label) {
+        // Rows whose value is not a number (headers, notes, blanks) are skipped
+        if (value !== null && label) {
             results.push({ label, concentration: value })
         }
     }
