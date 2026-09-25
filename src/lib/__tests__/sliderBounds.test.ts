@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyBoundCommit, clampValueToBounds, normalizeBoundValue, roundToOdd } from '@/lib/sliderBounds'
+import { applyBoundCommit, clampValueToBounds, normalizeBoundValue, roundToOdd, widenBoundsToInclude } from '@/lib/sliderBounds'
 
 // ─── roundToOdd ─────────────────────────────────────────────────────────────────
 
@@ -80,5 +80,23 @@ describe('clampValueToBounds', () => {
 
     it('keeps an odd-only value odd after clamping', () => {
         expect(clampValueToBounds(4, { min: 5, max: 15 }, { oddOnly: true })).toBe(5)
+    })
+})
+
+// ─── widenBoundsToInclude ───────────────────────────────────────────────────────
+
+describe('widenBoundsToInclude', () => {
+    it('returns the same range when the value is already inside it', () => {
+        const b = { min: 0, max: 500 }
+        expect(widenBoundsToInclude(b, 250)).toBe(b)
+        expect(widenBoundsToInclude(b, 500)).toBe(b)
+    })
+
+    it('raises max for a value above the range (e.g. calibrated Max Radius 700)', () => {
+        expect(widenBoundsToInclude({ min: 0, max: 500 }, 700)).toEqual({ min: 0, max: 700 })
+    })
+
+    it('lowers min for a value below the range', () => {
+        expect(widenBoundsToInclude({ min: 10, max: 500 }, 3)).toEqual({ min: 3, max: 500 })
     })
 })

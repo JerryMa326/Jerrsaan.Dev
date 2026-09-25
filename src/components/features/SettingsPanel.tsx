@@ -4,7 +4,7 @@ import { Circle, Square, Info, Crosshair, Trash2, Database, X } from 'lucide-rea
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useToast } from '@/components/ui/toast'
 import { hasCachedData, estimateCacheSize, formatBytes } from '@/lib/cacheUtils'
-import { applyBoundCommit, clampValueToBounds, type SliderBoundsRange } from '@/lib/sliderBounds'
+import { applyBoundCommit, clampValueToBounds, widenBoundsToInclude, type SliderBoundsRange } from '@/lib/sliderBounds'
 
 function BoundInput({ value, onChange, className = '', floor = 0 }: {
     value: number
@@ -62,7 +62,9 @@ function SliderWithBounds({ value, onChange, defaultMin, defaultMax, step = 1, o
     /** Lowest value a typed bound may be set to. Defaults to 0 (unchanged for most sliders). */
     floor?: number
 }) {
-    const [bounds, setBounds] = useState<SliderBoundsRange>({ min: defaultMin, max: defaultMax })
+    // Seed from the current value too: the panel can mount after a value was
+    // already pushed past the defaults (crosshair calibration, cache restore).
+    const [bounds, setBounds] = useState<SliderBoundsRange>(() => widenBoundsToInclude({ min: defaultMin, max: defaultMax }, value))
     // Tracks the last value this component itself produced (via the slider or
     // a bound-commit clamp), so we can tell a pointer drag apart from a value
     // that arrived from outside (crosshair calibration, cache restore).
@@ -76,9 +78,8 @@ function SliderWithBounds({ value, onChange, defaultMin, defaultMax, step = 1, o
     // `emit` below and update `lastEmitted` in the same render.
     if (value !== lastEmitted) {
         setLastEmitted(value)
-        if (value < bounds.min || value > bounds.max) {
-            setBounds({ min: Math.min(bounds.min, value), max: Math.max(bounds.max, value) })
-        }
+        const widened = widenBoundsToInclude(bounds, value)
+        if (widened !== bounds) setBounds(widened)
     }
 
     const emit = (v: number) => {

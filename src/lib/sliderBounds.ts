@@ -54,3 +54,14 @@ export function clampValueToBounds(
     const clamped = Math.min(Math.max(value, bounds.min), bounds.max)
     return opts.oddOnly ? roundToOdd(clamped) : clamped
 }
+
+/**
+ * Widens a range just enough to contain `value`. Used both to seed a slider
+ * that mounts with a value already outside its default range (e.g. Max Radius
+ * set by crosshair calibration before the settings panel was opened) and to
+ * follow values that later arrive from outside the slider.
+ */
+export function widenBoundsToInclude(bounds: SliderBoundsRange, value: number): SliderBoundsRange {
+    if (value >= bounds.min && value <= bounds.max) return bounds
+    return { min: Math.min(bounds.min, value), max: Math.max(bounds.max, value) }
+}
