@@ -9,6 +9,7 @@ import { calibrateColor } from '@/lib/colorCalibration'
 import { isOpenCVReady } from '@/lib/opencvUtils'
 import { hitTestShape, getCursorForHit, type HitResult } from '@/hooks/useShapeDrag'
 import { computeHeatmapColor } from '@/lib/plateUtils'
+import { applyViewTransform, screenToImage, type ViewTransform } from '@/lib/viewTransform'
 import type { PlateOverlayState } from '@/types'
 
 type ColorChannel = 'red' | 'green' | 'blue' | 'cyan' | 'magenta' | 'yellow' | 'black' | 'magnitude'
@@ -52,6 +53,8 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
     const [isTouchPanning, setIsTouchPanning] = useState(false)
     const [touchStartX, setTouchStartX] = useState(0)
     const [touchStartTime, setTouchStartTime] = useState(0)
+    // Whether the current touch sequence may still count as a swipe to the next/previous photo
+    const swipeCandidateRef = useRef(false)
     const [showPreprocessing, setShowPreprocessing] = useState(true)
 
     // Shape drag state
@@ -145,21 +148,30 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.code === 'Space' && !e.repeat) {
-                e.preventDefault()
-                setSpacePressed(true)
+            if (e.code !== 'Space' || e.repeat) return
+            // Leave Space alone for text fields and focused controls
+            const target = e.target
+            if (target instanceof HTMLElement &&
+                (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName))) {
+                return
             }
+            e.preventDefault()
+            setSpacePressed(true)
         }
         const handleKeyUp = (e: KeyboardEvent) => {
             if (e.code === 'Space') {
                 setSpacePressed(false)
             }
         }
+        // A keyup that happens while the window is not focused never arrives
+        const handleBlur = () => setSpacePressed(false)
         window.addEventListener('keydown', handleKeyDown)
         window.addEventListener('keyup', handleKeyUp)
+        window.addEventListener('blur', handleBlur)
         return () => {
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
+            window.removeEventListener('blur', handleBlur)
         }
     }, [])
 
@@ -172,10 +184,11 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
         ctx.save()
-        ctx.translate(canvas.width / 2, canvas.height / 2)
-        ctx.rotate((rotationAngle * Math.PI) / 180)
-        ctx.scale(zoomLevel, zoomLevel)
-        ctx.translate(-currentImage.width / 2 + offset.x / zoomLevel, -currentImage.height / 2 + offset.y / zoomLevel)
+        applyViewTransform(ctx, {
+            canvasWidth: canvas.width, canvasHeight: canvas.height,
+            imageWidth: currentImage.width, imageHeight: currentImage.height,
+            zoom: zoomLevel, rotation: rotationAngle, offset
+        })
 
         const displayImage = (preprocessedImage && preprocessedImage.complete) ? preprocessedImage : currentImage
         ctx.drawImage(displayImage, 0, 0)
@@ -454,30 +467,16 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         return () => window.removeEventListener('resize', handleResize)
     }, [draw])
 
-    const getImagePoint = (e: React.MouseEvent) => {
+    const getImagePoint = (e: { clientX: number; clientY: number }) => {
         const canvas = canvasRef.current
         if (!canvas || !currentImage) return { x: 0, y: 0 }
         const rect = canvas.getBoundingClientRect()
-
-        const canvasX = e.clientX - rect.left
-        const canvasY = e.clientY - rect.top
-
-        const centerX = canvas.width / 2
-        const centerY = canvas.height / 2
-
-        let x = canvasX - centerX
-        let y = canvasY - centerY
-
-        const rad = (-rotationAngle * Math.PI) / 180
-        const cos = Math.cos(rad)
-        const sin = Math.sin(rad)
-        const rx = x * cos - y * sin
-        const ry = x * sin + y * cos
-
-        x = rx / zoomLevel + currentImage.width / 2 - offset.x / zoomLevel
-        y = ry / zoomLevel + currentImage.height / 2 - offset.y / zoomLevel
-
-        return { x, y }
+        const view: ViewTransform = {
+            canvasWidth: canvas.width, canvasHeight: canvas.height,
+            imageWidth: currentImage.width, imageHeight: currentImage.height,
+            zoom: zoomLevel, rotation: rotationAngle, offset
+        }
+        return screenToImage({ x: e.clientX - rect.left, y: e.clientY - rect.top }, view)
     }
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -838,40 +837,32 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         return `#${num}`
     }
 
-    const handleWheel = (e: React.WheelEvent) => {
+    const handleWheel = (e: WheelEvent) => {
         e.preventDefault()
         const delta = -e.deltaY * 0.001
         const newZoom = Math.min(Math.max(0.1, zoomLevel + delta), 10)
         setZoomLevel(newZoom)
     }
 
-    const getTouchPoint = (touch: React.Touch) => {
+    // React's onWheel is passive, so preventDefault there cannot stop the page
+    // from zooming/scrolling too; register a non-passive listener instead.
+    const handleWheelRef = useRef(handleWheel)
+    useEffect(() => {
+        handleWheelRef.current = handleWheel
+    })
+    useEffect(() => {
         const canvas = canvasRef.current
-        if (!canvas || !currentImage) return { x: 0, y: 0 }
-        const rect = canvas.getBoundingClientRect()
+        if (!canvas) return
+        const onWheel = (e: WheelEvent) => handleWheelRef.current(e)
+        canvas.addEventListener('wheel', onWheel, { passive: false })
+        return () => canvas.removeEventListener('wheel', onWheel)
+    }, [])
 
-        const canvasX = touch.clientX - rect.left
-        const canvasY = touch.clientY - rect.top
-
-        const centerX = canvas.width / 2
-        const centerY = canvas.height / 2
-
-        let x = canvasX - centerX
-        let y = canvasY - centerY
-
-        const rad = (-rotationAngle * Math.PI) / 180
-        const cos = Math.cos(rad)
-        const sin = Math.sin(rad)
-        const rx = x * cos - y * sin
-        const ry = x * sin + y * cos
-
-        x = rx / zoomLevel + currentImage.width / 2 - offset.x / zoomLevel
-        y = ry / zoomLevel + currentImage.height / 2 - offset.y / zoomLevel
-
-        return { x, y }
-    }
+    const getTouchPoint = (touch: React.Touch) => getImagePoint(touch)
 
     const handleTouchStart = (e: React.TouchEvent) => {
+        // A second finger makes this sequence a pinch, never a swipe
+        if (e.touches.length !== 1) swipeCandidateRef.current = false
         if (e.touches.length === 2) {
             const dist = Math.hypot(
                 e.touches[0].clientX - e.touches[1].clientX,
@@ -883,6 +874,8 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const touch = e.touches[0]
             setTouchStartX(touch.clientX)
             setTouchStartTime(Date.now())
+            // Once zoomed in or panned, a one-finger drag is a pan, not a photo swipe
+            swipeCandidateRef.current = zoomLevel <= 1 && offset.x === 0 && offset.y === 0
             if (drawingMode === 'none') {
                 setIsTouchPanning(true)
                 setDragStart({ x: touch.clientX - offset.x, y: touch.clientY - offset.y })
@@ -940,7 +933,9 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         setIsTouchPanning(false)
 
         // Detect horizontal swipe to navigate images
-        if (drawingMode === 'none' && e.changedTouches.length === 1 && !shapeDragState) {
+        const swipeCandidate = swipeCandidateRef.current
+        if (e.touches.length === 0) swipeCandidateRef.current = false
+        if (swipeCandidate && e.touches.length === 0 && drawingMode === 'none' && e.changedTouches.length === 1 && !shapeDragState) {
             const dx = e.changedTouches[0].clientX - touchStartX
             const dt = Date.now() - touchStartTime
             const velocity = Math.abs(dx) / dt
@@ -975,7 +970,6 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
