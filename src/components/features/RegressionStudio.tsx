@@ -681,6 +681,9 @@ export function RegressionStudio() {
     const autoFitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     // Set by importModel so the auto-fit does not replace the calibration it just loaded
     const skipAutoFitRef = useRef(false)
+    // Whether the last auto-fit produced models. Only then is a drop below 2 standards a reason
+    // to clear them; models imported on their own, without standards, are kept.
+    const lastAutoFitHadModelsRef = useRef(false)
 
     // Auto-fit regression as concentrations are entered (300ms debounce)
     useEffect(() => {
@@ -696,7 +699,8 @@ export function RegressionStudio() {
                 const newModels = computeAllModels(shapes, committedPoints, modelType, getColorValue, excludedPoints)
                 // Fewer than 2 usable standards: drop the old fit instead of leaving it on screen
                 if (newModels) setRegressionModels(newModels)
-                else setRegressionModels(prev => Object.keys(prev).length > 0 ? {} : prev)
+                else if (lastAutoFitHadModelsRef.current) setRegressionModels(prev => Object.keys(prev).length > 0 ? {} : prev)
+                lastAutoFitHadModelsRef.current = newModels !== null
                 setIsAutoFitting(false)
             })
         }, 300)
@@ -1208,7 +1212,7 @@ export function RegressionStudio() {
                                                     />
                                                     <span className={`font-mono font-bold ${isExcluded ? 'line-through' : ''}`}>{shape.label}</span>
                                                     {isOutlier && !isExcluded && (
-                                                        <span className="text-amber-500 text-[10px]" title={`Std. residual: ${residual!.standardizedResidual.toFixed(2)}`}>&#9888;</span>
+                                                        <span className="text-amber-500 text-[10px]" title={`Std. residual: ${Number.isFinite(residual!.standardizedResidual) ? residual!.standardizedResidual.toFixed(2) : 'very large'}`}>&#9888;</span>
                                                     )}
                                                 </div>
                                             </td>
