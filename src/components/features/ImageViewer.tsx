@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { extractColorFromShape, extractColorStats, rgbToCmyk } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
 import { isOpenCVReady } from '@/lib/opencvUtils'
-import { hitTestShape, getCursorForHit, type HitResult } from '@/hooks/useShapeDrag'
+import { hitTestShape, getCursorForHit, computeShapeDrag, type HitResult, type ShapeGeometry } from '@/hooks/useShapeDrag'
 import { computeHeatmapColor } from '@/lib/plateUtils'
 import type { PlateOverlayState } from '@/types'
 
@@ -59,8 +59,10 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         shapeId: string
         hit: HitResult
         startPt: { x: number; y: number }
-        startShape: { x: number; y: number; width?: number; height?: number; radius?: number }
+        startShape: ShapeGeometry
     } | null>(null)
+    // In-progress drag geometry; committed to the shape (one undo step) on release
+    const [dragPreview, setDragPreview] = useState<{ shapeId: string; geometry: Partial<ShapeGeometry> } | null>(null)
 
     const [plateDragCorner, setPlateDragCorner] = useState<string | null>(null)
     const [plateDragStart, setPlateDragStart] = useState<{ x: number; y: number; overlay: PlateOverlayState } | null>(null)
@@ -200,7 +202,9 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             ctx.fillText('ROI', boundingBox.x + 4 / zoomLevel, boundingBox.y + 16 / zoomLevel)
         }
 
-        const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
+        const currentShapes = shapes
+            .filter(s => s.imageIndex === currentImageIndex)
+            .map(s => dragPreview && s.id === dragPreview.shapeId ? { ...s, ...dragPreview.geometry } : s)
 
         currentShapes.forEach(shape => {
             const isSelected = shape.id === selectedShapeId
@@ -428,7 +432,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage, heatmapMode, heatmapChannel, rawRgbMode, colorCalibration, plateOverlay])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage, heatmapMode, heatmapChannel, rawRgbMode, colorCalibration, plateOverlay, dragPreview])
 
     useEffect(() => {
         draw()
@@ -538,17 +542,15 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
                 const hit = hitTestShape(pt, shape, zoomLevel)
                 if (hit) {
                     setSelectedShapeId(shape.id)
+                    // Rectangles drawn up/left may be stored with negative size; normalize
+                    const w = shape.width || 0, h = shape.height || 0
                     setShapeDragState({
                         shapeId: shape.id,
                         hit,
                         startPt: pt,
-                        startShape: {
-                            x: shape.x,
-                            y: shape.y,
-                            width: shape.width,
-                            height: shape.height,
-                            radius: shape.radius
-                        }
+                        startShape: shape.type === 'rectangle'
+                            ? { x: Math.min(shape.x, shape.x + w), y: Math.min(shape.y, shape.y + h), width: Math.abs(w), height: Math.abs(h) }
+                            : { x: shape.x, y: shape.y, radius: shape.radius }
                     })
                     return
                 }
@@ -595,50 +597,14 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             return
         }
 
-        // Shape drag/resize
+        // Shape drag/resize (kept local until release)
         if (shapeDragState) {
             const pt = getImagePoint(e)
-            const dx = pt.x - shapeDragState.startPt.x
-            const dy = pt.y - shapeDragState.startPt.y
-            const s = shapeDragState.startShape
-
-            if (shapeDragState.hit === 'body') {
-                updateShape(shapeDragState.shapeId, { x: s.x + dx, y: s.y + dy })
-            } else if (shapeDragState.hit === 'edge') {
-                // Circle resize
-                const distFromCenter = Math.sqrt(
-                    (pt.x - s.x) ** 2 + (pt.y - s.y) ** 2
-                )
-                updateShape(shapeDragState.shapeId, { radius: Math.max(5, distFromCenter) })
-            } else if (shapeDragState.hit?.startsWith('corner-')) {
-                // Rectangle resize via corners
-                const corner = shapeDragState.hit
-                let newX = s.x, newY = s.y, newW = s.width || 0, newH = s.height || 0
-
-                if (corner === 'corner-br') {
-                    newW = (s.width || 0) + dx
-                    newH = (s.height || 0) + dy
-                } else if (corner === 'corner-bl') {
-                    newX = s.x + dx
-                    newW = (s.width || 0) - dx
-                    newH = (s.height || 0) + dy
-                } else if (corner === 'corner-tr') {
-                    newY = s.y + dy
-                    newW = (s.width || 0) + dx
-                    newH = (s.height || 0) - dy
-                } else if (corner === 'corner-tl') {
-                    newX = s.x + dx
-                    newY = s.y + dy
-                    newW = (s.width || 0) - dx
-                    newH = (s.height || 0) - dy
-                }
-
-                updateShape(shapeDragState.shapeId, {
-                    x: newX, y: newY,
-                    width: Math.max(10, newW),
-                    height: Math.max(10, newH)
-                })
-            }
+            const { hit, startShape, startPt } = shapeDragState
+            setDragPreview({
+                shapeId: shapeDragState.shapeId,
+                geometry: { ...startShape, ...computeShapeDrag(hit, startShape, startPt, pt) }
+            })
             return
         }
 
@@ -696,24 +662,27 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             return
         }
 
-        // Finalize shape drag
+        // Finalize shape drag: one update (geometry + color), only if it moved
         if (shapeDragState) {
-            // Re-extract color after drag
-            if (currentImage) {
-                const shape = shapes.find(s => s.id === shapeDragState.shapeId)
-                if (shape) {
-                    const tempCanvas = document.createElement('canvas')
-                    tempCanvas.width = currentImage.width
-                    tempCanvas.height = currentImage.height
-                    const tempCtx = tempCanvas.getContext('2d')
-                    if (tempCtx) {
-                        tempCtx.drawImage(currentImage, 0, 0)
-                        const stats = extractColorStats(tempCtx, shape)
-                        updateShape(shape.id, { color: stats.mean, colorStdDev: stats.stdDev })
-                    }
+            const shape = shapes.find(s => s.id === shapeDragState.shapeId)
+            const geometry = dragPreview?.shapeId === shapeDragState.shapeId ? dragPreview.geometry : null
+            const start = shapeDragState.startShape
+            const moved = geometry && (Object.keys(geometry) as (keyof ShapeGeometry)[]).some(k => geometry[k] !== start[k])
+            if (shape && geometry && moved && currentImage) {
+                const tempCanvas = document.createElement('canvas')
+                tempCanvas.width = currentImage.width
+                tempCanvas.height = currentImage.height
+                const tempCtx = tempCanvas.getContext('2d')
+                if (tempCtx) {
+                    tempCtx.drawImage(currentImage, 0, 0)
+                    const stats = extractColorStats(tempCtx, { ...shape, ...geometry }, detectionSettings.restrictedArea / 100)
+                    updateShape(shape.id, { ...geometry, color: stats.mean, colorStdDev: stats.stdDev })
+                } else {
+                    updateShape(shape.id, geometry)
                 }
             }
             setShapeDragState(null)
+            setDragPreview(null)
             return
         }
 
@@ -792,14 +761,18 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
                 return
             }
 
+            // Normalize rectangles drawn up/left to a positive size
+            const isRect = drawingMode === 'rectangle'
+            const draftW = currentDraftShape.width || 0
+            const draftH = currentDraftShape.height || 0
             const newShape: Shape = {
                 id: uuidv4(),
                 label: getNextLabel(),
                 type: drawingMode as 'rectangle' | 'circle',
-                x: currentDraftShape.x!,
-                y: currentDraftShape.y!,
-                width: currentDraftShape.width,
-                height: currentDraftShape.height,
+                x: isRect && draftW < 0 ? currentDraftShape.x! + draftW : currentDraftShape.x!,
+                y: isRect && draftH < 0 ? currentDraftShape.y! + draftH : currentDraftShape.y!,
+                width: isRect ? Math.abs(draftW) : currentDraftShape.width,
+                height: isRect ? Math.abs(draftH) : currentDraftShape.height,
                 radius: currentDraftShape.radius,
                 color: [0, 0, 0],
                 imageIndex: currentImageIndex
@@ -811,7 +784,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const tempCtx = tempCanvas.getContext('2d')
             if (tempCtx) {
                 tempCtx.drawImage(currentImage, 0, 0)
-                const stats = extractColorStats(tempCtx, newShape)
+                const stats = extractColorStats(tempCtx, newShape, detectionSettings.restrictedArea / 100)
                 newShape.color = stats.mean
                 newShape.colorStdDev = stats.stdDev
             }
