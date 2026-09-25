@@ -5,6 +5,7 @@ import {
     fitPower,
     fitLogarithmic,
     fitBest,
+    parsePastedCells,
     evaluateModel,
     predict,
     formatEquation,
@@ -301,6 +302,21 @@ describe('formatEquation', () => {
         const eq = formatEquation(model)
         expect(eq).toContain('ln(x)')
         expect(eq).toBe('y = 3.14\u00B7ln(x) + 2.7')
+    })
+})
+
+describe('parsePastedCells', () => {
+    it('keeps a blank cell so later values stay on their wells', () => {
+        expect(parsePastedCells('120\t\t98')).toEqual(['120', '', '98'])
+    })
+
+    it('ignores the trailing newline a spreadsheet adds', () => {
+        expect(parsePastedCells('1\n2\n3\n')).toEqual(['1', '2', '3'])
+        expect(parsePastedCells('1\r\n2\r\n')).toEqual(['1', '2'])
+    })
+
+    it('reads rows then tabs in order and trims cells', () => {
+        expect(parsePastedCells(' 1\t2 \n3\t\n')).toEqual(['1', '2', '3', ''])
     })
 })
 
