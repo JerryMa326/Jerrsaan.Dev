@@ -716,7 +716,7 @@ export function RegressionStudio() {
         // Title
         ctx.fillStyle = '#ffffff'
         ctx.font = 'bold 16px system-ui, sans-serif'
-        ctx.fillText('ChemClub Analyst — Regression Charts', padding, 28)
+        ctx.fillText('ChemClub Analyst - Regression Charts', padding, 28)
 
         canvases.forEach((canvas, i) => {
             const col = i % cols
@@ -1211,7 +1211,7 @@ export function RegressionStudio() {
                                 <div key={ch} className="bg-card border rounded-lg p-3">
                                     <div className="flex items-center justify-between mb-2">
                                         <h4 className="text-xs font-semibold capitalize" style={{ color: channelColors[ch] }}>
-                                            {ch}{multiModelMode ? ' — Model Comparison' : ''}
+                                            {ch}{multiModelMode ? ' - Model Comparison' : ''}
                                         </h4>
                                         {!multiModelMode && regressionModels[ch] && (
                                             <span className="text-[10px] text-muted-foreground">
