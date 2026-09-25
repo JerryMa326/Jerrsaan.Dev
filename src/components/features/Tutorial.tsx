@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
     X, ChevronRight, ChevronLeft, Upload, Circle, Wand2,
@@ -104,6 +104,7 @@ interface TutorialProps {
 export function Tutorial({ onClose }: TutorialProps) {
     const [currentStep, setCurrentStep] = useState(0)
     const [highlightRect, setHighlightRect] = useState<DOMRect | null>(null)
+    const modalRef = useRef<HTMLDivElement>(null)
 
     const step = steps[currentStep]
     const isFirst = currentStep === 0
@@ -149,12 +150,18 @@ export function Tutorial({ onClose }: TutorialProps) {
         const handler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') { onClose(); return }
             const target = e.target as HTMLElement | null
-            // When a button (Next, Back, Skip, X) has focus, Enter already
-            // triggers its own click natively - handling it here too advanced
-            // two steps at once, or advanced AND closed when Skip/X had focus.
-            const isFocusedControl = target?.tagName === 'BUTTON' || target?.tagName === 'INPUT'
+            // When one of the tutorial's own buttons (Next, Back, Skip, X) has
+            // focus, Enter already triggers its click natively - handling it
+            // here too advanced two steps at once, or advanced AND closed when
+            // Skip/X had focus. A control outside the tutorial (e.g. the "?"
+            // button that opened it) keeps focus behind the overlay: suppress
+            // its native activation and advance instead.
+            const isOwnControl = !!target && !!modalRef.current?.contains(target)
+                && (target.tagName === 'BUTTON' || target.tagName === 'INPUT')
             if (e.key === 'Enter') {
-                if (!isFocusedControl) handleNext()
+                if (isOwnControl) return
+                e.preventDefault()
+                handleNext()
             } else if (e.key === 'ArrowRight') {
                 handleNext()
             } else if (e.key === 'ArrowLeft') {
@@ -256,7 +263,7 @@ export function Tutorial({ onClose }: TutorialProps) {
             )}
 
             {/* Modal */}
-            <div className="absolute" style={getModalStyle()}>
+            <div ref={modalRef} className="absolute" style={getModalStyle()}>
                 <div className="bg-card border rounded-xl shadow-2xl overflow-hidden">
                     {/* Header */}
                     <div className="flex items-center justify-between p-4 border-b bg-muted/50">
