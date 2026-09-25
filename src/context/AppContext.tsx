@@ -8,6 +8,7 @@ import { useUndoRedo } from '../hooks/useUndoRedo'
 import {
     loadCachedImages,
     loadCachedAppState,
+    remapAfterMissingImages,
     debouncedSaveState,
     forceSaveState,
     clearAllCache,
@@ -99,20 +100,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
 
             try {
-                const cachedImages = await loadCachedImages()
+                const cachedState = loadCachedAppState()
+                const cachedSlots = await loadCachedImages(cachedState?.imageIds)
+                const cachedImages = cachedSlots.filter((img): img is HTMLImageElement => img !== null)
                 if (cachedImages.length > 0) {
                     setImages(cachedImages)
                 }
 
-                const cachedState = loadCachedAppState()
                 if (cachedState) {
-                    setShapesInternal(cachedState.shapes || [])
+                    // Drop shapes whose photo failed to load, so none end up on the wrong photo
+                    const restored = remapAfterMissingImages(
+                        cachedState.shapes || [],
+                        cachedState.currentImageIndex || 0,
+                        cachedSlots.map(img => img !== null)
+                    )
+                    setShapesInternal(restored.shapes)
                     setRegressionModels(cachedState.regressionModels || {})
                     setCommittedPoints(cachedState.committedPoints || [])
                     setDetectionSettings(cachedState.detectionSettings || defaultDetectionSettings)
                     setColorMode(cachedState.colorMode || 'RGB')
                     setRawRgbMode(cachedState.rawRgbMode ?? true)
-                    setCurrentImageIndex(Math.min(cachedState.currentImageIndex || 0, Math.max(0, cachedImages.length - 1)))
+                    setCurrentImageIndex(Math.min(restored.currentImageIndex, Math.max(0, cachedImages.length - 1)))
                     setIsGridView(cachedState.isGridView ?? false)
                     setZoomLevel(cachedState.zoomLevel || 1)
                     setRotationAngle(cachedState.rotationAngle || 0)
