@@ -208,8 +208,10 @@ async function recordToImage(record: CachedImage): Promise<HTMLImageElement | nu
 }
 
 /**
- * After a restore where some images failed to load, drops the shapes that were
- * on those images and shifts the rest so they point at the right image again.
+ * After a restore where some images failed to load, shifts shapes so they point
+ * at the right image again. Shapes whose image is gone are kept with imageIndex
+ * -1: they no longer show on any photo, but their colors and labels stay in the
+ * regression and the CSV export.
  */
 export function remapAfterMissingImages(
     shapes: Shape[],
@@ -220,9 +222,10 @@ export function remapAfterMissingImages(
     let next = 0
     for (const ok of loaded) newIndex.push(ok ? next++ : -1)
 
-    const remapped = shapes
-        .filter(s => (newIndex[s.imageIndex] ?? -1) >= 0)
-        .map(s => newIndex[s.imageIndex] === s.imageIndex ? s : { ...s, imageIndex: newIndex[s.imageIndex] })
+    const remapped = shapes.map(s => {
+        const index = newIndex[s.imageIndex] ?? -1
+        return index === s.imageIndex ? s : { ...s, imageIndex: index }
+    })
 
     // Stay on the same image, or the nearest earlier one that loaded
     let current = 0

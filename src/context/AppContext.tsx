@@ -104,17 +104,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 const cachedSlots = await loadCachedImages(cachedState?.imageIds)
                 const cachedImages = cachedSlots.filter((img): img is HTMLImageElement => img !== null)
                 if (cachedImages.length > 0) {
-                    setImages(cachedImages)
+                    // Restored photos go first, ahead of any added while the restore was running
+                    setImages(prev => [...cachedImages, ...prev])
                 }
 
                 if (cachedState) {
-                    // Drop shapes whose photo failed to load, so none end up on the wrong photo
+                    // Detach shapes whose photo failed to load, so none end up on the wrong photo
                     const restored = remapAfterMissingImages(
                         cachedState.shapes || [],
                         cachedState.currentImageIndex || 0,
                         cachedSlots.map(img => img !== null)
                     )
-                    setShapesInternal(restored.shapes)
+                    setShapesInternal(prev => [
+                        ...restored.shapes,
+                        ...prev.map(s => s.imageIndex >= 0 ? { ...s, imageIndex: s.imageIndex + cachedImages.length } : s)
+                    ])
                     setRegressionModels(cachedState.regressionModels || {})
                     setCommittedPoints(cachedState.committedPoints || [])
                     setDetectionSettings(cachedState.detectionSettings || defaultDetectionSettings)

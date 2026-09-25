@@ -40,10 +40,10 @@ describe('remapAfterMissingImages', () => {
         expect(result.currentImageIndex).toBe(1)
     })
 
-    it('drops shapes of a missing image and moves later shapes down', () => {
+    it('detaches shapes of a missing image and moves later shapes down', () => {
         const shapes = [shape('a', 0), shape('b', 1), shape('c', 2)]
         const result = remapAfterMissingImages(shapes, 2, [true, false, true])
-        expect(result.shapes.map(s => [s.id, s.imageIndex])).toEqual([['a', 0], ['c', 1]])
+        expect(result.shapes.map(s => [s.id, s.imageIndex])).toEqual([['a', 0], ['b', -1], ['c', 1]])
         expect(result.currentImageIndex).toBe(1)
     })
 
@@ -52,14 +52,20 @@ describe('remapAfterMissingImages', () => {
         expect(result.currentImageIndex).toBe(1)
     })
 
-    it('drops shapes that point past the loaded images', () => {
+    it('detaches shapes that point past the loaded images', () => {
         const result = remapAfterMissingImages([shape('a', 0), shape('b', 3)], 0, [true])
-        expect(result.shapes.map(s => s.id)).toEqual(['a'])
+        expect(result.shapes.map(s => [s.id, s.imageIndex])).toEqual([['a', 0], ['b', -1]])
+    })
+
+    it('never drops a shape', () => {
+        const shapes = [shape('a', -1), shape('b', 0), shape('c', 1)]
+        const result = remapAfterMissingImages(shapes, 0, [false, true])
+        expect(result.shapes.map(s => [s.id, s.imageIndex])).toEqual([['a', -1], ['b', -1], ['c', 0]])
     })
 
     it('handles no images at all', () => {
         const result = remapAfterMissingImages([shape('a', 0)], 0, [false])
-        expect(result.shapes).toEqual([])
+        expect(result.shapes.map(s => [s.id, s.imageIndex])).toEqual([['a', -1]])
         expect(result.currentImageIndex).toBe(0)
     })
 })
