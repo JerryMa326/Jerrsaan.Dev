@@ -64,9 +64,21 @@ describe('parseConcentrationCSV', () => {
         ])
     })
 
-    it('skips rows whose value is not entirely a number', () => {
-        expect(parseConcentrationCSV('A1,0.5abc\nA2,\nA3,n/a\nA4,3')).toEqual([
+    it('skips rows whose value is not a number', () => {
+        expect(parseConcentrationCSV('A1,1.5.2\nA2,\nA3,n/a\nA4,3\nA5,3-4')).toEqual([
             { label: 'A4', concentration: 3 },
+        ])
+    })
+
+    it('reads values that carry a unit', () => {
+        expect(parseConcentrationCSV('A1,0.5 mM\nA2,10µM\nA3,2 mg/mL\nA4,5%')).toEqual([
+            { label: 'A1', concentration: 0.5 },
+            { label: 'A2', concentration: 10 },
+            { label: 'A3', concentration: 2 },
+            { label: 'A4', concentration: 5 },
+        ])
+        expect(parseConcentrationCSV('Well;Conc\nA1;0,5 mM')).toEqual([
+            { label: 'A1', concentration: 0.5 },
         ])
     })
 

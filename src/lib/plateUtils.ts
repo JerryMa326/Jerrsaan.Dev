@@ -206,9 +206,10 @@ function cleanField(field: CsvField): string {
     return field.quoted ? trimmed : trimmed.replace(/^'|'$/g, '')
 }
 
-/** Parse a whole-field number; a comma decimal ("0,5") is accepted when allowed */
+/** Parse a whole-field number, optionally followed by a unit ("0.5 mM"); a comma decimal ("0,5") is accepted when allowed */
 function parseNumber(raw: string, allowCommaDecimal: boolean): number | null {
-    let s = raw
+    // Drop a trailing unit such as "mM", "µg/mL" or "%"
+    let s = raw.replace(/\s*[a-zµμ%][a-zµμ%/ ]*$/i, '')
     if (allowCommaDecimal && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(s)) s = s.replace(',', '.')
     if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return null
     const n = Number(s)
