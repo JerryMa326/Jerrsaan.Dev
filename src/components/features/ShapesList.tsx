@@ -5,8 +5,7 @@ import { Trash2, ArrowUpDown, ArrowDown, ArrowUp, ArrowRight, ArrowLeft, X, Pipe
 import { rgbToCmyk, rgbToHsl, rgbToHsv } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
 import { getConfidenceColor } from '@/lib/confidenceUtils'
-import { resolveLabelEdit } from '@/lib/labelUtils'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { carryConcentrationOnRename, resolveLabelEdit } from '@/lib/labelUtils'
 
 type SortDirection = 'top-to-bottom' | 'left-to-right'
 type SortOrder = 'ascending' | 'descending'
@@ -85,7 +84,6 @@ export function ShapesList() {
     const [showQuickSort, setShowQuickSort] = useState(false)
     const [sortDirection, setSortDirection] = useState<SortDirection>('top-to-bottom')
     const [sortOrder, setSortOrder] = useState<SortOrder>('ascending')
-    const [confirmClear, setConfirmClear] = useState(false)
 
     const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
 
@@ -174,7 +172,7 @@ export function ShapesList() {
                         size="sm"
                         variant="ghost"
                         className="h-6 rounded-full px-2.5 text-[11px] font-medium text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => setConfirmClear(true)}
+                        onClick={() => clearShapesForImage(currentImageIndex)}
                     >
                         <X className="h-3 w-3 mr-1" />
                         Clear
@@ -297,10 +295,8 @@ export function ShapesList() {
                                             if (resolved !== shape.label) {
                                                 updateShape(shape.id, { label: resolved })
                                                 // Regression concentrations are keyed by label, not shape id -
-                                                // move the committed point along with the rename in one action.
-                                                setCommittedPoints(prev => prev.map(p =>
-                                                    p.label === shape.label ? { ...p, label: resolved } : p
-                                                ))
+                                                // carry the concentration over to the new label too.
+                                                setCommittedPoints(prev => carryConcentrationOnRename(prev, shape.label, resolved))
                                             }
                                             return true
                                         }}
@@ -345,18 +341,6 @@ export function ShapesList() {
                     )
                 })}
             </div>
-
-            <ConfirmDialog
-                open={confirmClear}
-                message={`Clear all ${currentShapes.length} sample${currentShapes.length === 1 ? '' : 's'} on this image?`}
-                destructive
-                confirmText="Clear"
-                onConfirm={() => {
-                    clearShapesForImage(currentImageIndex)
-                    setConfirmClear(false)
-                }}
-                onCancel={() => setConfirmClear(false)}
-            />
         </div>
     )
 }
