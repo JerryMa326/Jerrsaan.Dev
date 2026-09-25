@@ -469,3 +469,14 @@ export function formatEquation(model: RegressionModel): string {
             return `y = ${model.a.toFixed(2)}·ln(x) + ${model.b.toFixed(1)}`
     }
 }
+
+/**
+ * Splits spreadsheet clipboard text into cells in reading order (rows on line
+ * breaks, cells on tabs). Blank cells are kept as '' so every later value stays
+ * lined up with its well; the trailing line break spreadsheets add is ignored.
+ */
+export function parsePastedCells(text: string): string[] {
+    const rows = text.split(/\r\n|\r|\n/)
+    if (rows.length > 1 && rows[rows.length - 1] === '') rows.pop()
+    return rows.flatMap(row => row.split('\t').map(cell => cell.trim()))
+}
