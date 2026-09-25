@@ -133,7 +133,11 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
     // result stays on screen until the new one is ready.
     const [preprocessed, setPreprocessed] = useState<{ source: HTMLImageElement; canvas: HTMLCanvasElement } | null>(null)
     useEffect(() => {
-        if (!currentImage || !hasPreprocessing || !showPreprocessing) return
+        if (!currentImage || !hasPreprocessing || !showPreprocessing) {
+            // Let go of the full-size preview canvas while no preview is shown
+            const frame = requestAnimationFrame(() => setPreprocessed(null))
+            return () => cancelAnimationFrame(frame)
+        }
         const frame = requestAnimationFrame(() => {
             setPreprocessed({
                 source: currentImage,
