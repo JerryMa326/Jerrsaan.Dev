@@ -45,68 +45,87 @@ export function generatePlateShapes(
     const cosA = Math.cos(rad)
     const sinA = Math.sin(rad)
 
-    // Create a temporary canvas to extract colors
-    const canvas = document.createElement('canvas')
-    canvas.width = image.naturalWidth || image.width
-    canvas.height = image.naturalHeight || image.height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return []
-    ctx.drawImage(image, 0, 0)
-
-    const shapes: Shape[] = []
+    // Well centers, in label order
+    const centers: { cx: number; cy: number }[] = []
     for (let r = 0; r < template.rows; r++) {
         for (let c = 0; c < template.cols; c++) {
             // Unrotated position relative to plate center
             const localX = x + cellW * (c + 0.5) - centerX
             const localY = y + cellH * (r + 0.5) - centerY
             // Apply rotation
-            const cx = centerX + localX * cosA - localY * sinA
-            const cy = centerY + localX * sinA + localY * cosA
-            const idx = r * template.cols + c
-
-            const color = extractCircleColor(ctx, cx, cy, radius, restrictedArea)
-
-            shapes.push({
-                id: uuid(),
-                label: labels[idx],
-                type: 'circle',
-                x: cx,
-                y: cy,
-                radius,
-                color,
-                imageIndex,
-                auto: true,
+            centers.push({
+                cx: centerX + localX * cosA - localY * sinA,
+                cy: centerY + localX * sinA + localY * cosA,
             })
         }
     }
+
+    // Create a temporary canvas to extract colors
+    const canvas = document.createElement('canvas')
+    canvas.width = image.naturalWidth || image.width
+    canvas.height = image.naturalHeight || image.height
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return []
+    ctx.drawImage(image, 0, 0)
+
+    // Read the pixels under all wells once, instead of once per well
+    const sampleR = radius * (restrictedArea / 100)
+    const x0 = Math.max(0, Math.floor(Math.min(...centers.map(p => p.cx)) - sampleR))
+    const y0 = Math.max(0, Math.floor(Math.min(...centers.map(p => p.cy)) - sampleR))
+    const x1 = Math.min(canvas.width, Math.ceil(Math.max(...centers.map(p => p.cx)) + sampleR))
+    const y1 = Math.min(canvas.height, Math.ceil(Math.max(...centers.map(p => p.cy)) + sampleR))
+    const region: PixelRegion | null = x1 > x0 && y1 > y0
+        ? { data: ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data, x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+        : null
+
+    const shapes: Shape[] = []
+    centers.forEach(({ cx, cy }, idx) => {
+        shapes.push({
+            id: uuid(),
+            label: labels[idx],
+            type: 'circle',
+            x: cx,
+            y: cy,
+            radius,
+            color: region ? extractCircleColor(region, cx, cy, sampleR) : [0, 0, 0],
+            imageIndex,
+            auto: true,
+        })
+    })
     return shapes
 }
 
-function extractCircleColor(
-    ctx: CanvasRenderingContext2D,
-    cx: number, cy: number,
-    radius: number, restrictedArea: number
-): [number, number, number] {
-    const sampleR = radius * (restrictedArea / 100)
-    const x0 = Math.max(0, Math.floor(cx - sampleR))
-    const y0 = Math.max(0, Math.floor(cy - sampleR))
-    const x1 = Math.min(ctx.canvas.width, Math.ceil(cx + sampleR))
-    const y1 = Math.min(ctx.canvas.height, Math.ceil(cy + sampleR))
-    const w = x1 - x0
-    const h = y1 - y0
-    if (w <= 0 || h <= 0) return [0, 0, 0]
+/** RGBA pixels of the image rectangle starting at (x, y) */
+export interface PixelRegion {
+    data: Uint8ClampedArray
+    x: number
+    y: number
+    width: number
+    height: number
+}
 
-    const imageData = ctx.getImageData(x0, y0, w, h)
-    const data = imageData.data
+/** Average color of the pixels within sampleR of (cx, cy); pixels outside the region are skipped */
+export function extractCircleColor(
+    region: PixelRegion,
+    cx: number, cy: number,
+    sampleR: number
+): [number, number, number] {
+    const x0 = Math.max(region.x, Math.floor(cx - sampleR))
+    const y0 = Math.max(region.y, Math.floor(cy - sampleR))
+    const x1 = Math.min(region.x + region.width, Math.ceil(cx + sampleR))
+    const y1 = Math.min(region.y + region.height, Math.ceil(cy + sampleR))
+    if (x1 <= x0 || y1 <= y0) return [0, 0, 0]
+
+    const data = region.data
     let rSum = 0, gSum = 0, bSum = 0, count = 0
     const r2 = sampleR * sampleR
 
-    for (let py = 0; py < h; py++) {
-        for (let px = 0; px < w; px++) {
-            const dx = (x0 + px) - cx
-            const dy = (y0 + py) - cy
+    for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+            const dx = px - cx
+            const dy = py - cy
             if (dx * dx + dy * dy <= r2) {
-                const i = (py * w + px) * 4
+                const i = ((py - region.y) * region.width + (px - region.x)) * 4
                 rSum += data[i]
                 gSum += data[i + 1]
                 bSum += data[i + 2]
