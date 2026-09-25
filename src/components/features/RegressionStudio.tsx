@@ -12,7 +12,7 @@ import { parseConcentrationCSV } from '@/lib/plateUtils'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
-    computeRSE, computeResiduals, concentrationUncertainty,
+    computeResiduals, concentrationUncertainty,
     type RegressionModel, type RegressionModelType, type ResidualPoint
 } from '@/lib/regressionUtils'
 import {
@@ -314,7 +314,8 @@ export function RegressionStudio() {
         return bestCh
     }, [predictionChannel, regressionModels])
 
-    const rseValue = (() => {
+    // Standards behind the prediction channel's curve, for the +- on predicted concentrations
+    const predStandards = (() => {
         const model = regressionModels[effectivePredChannel]
         if (!model) return null
         const points = committedPoints
@@ -326,7 +327,7 @@ export function RegressionStudio() {
             })
             .filter(Boolean) as { x: number; y: number }[]
         if (points.length < 3) return null
-        return computeRSE(model, points.map(p => p.x), points.map(p => p.y))
+        return { xs: points.map(p => p.x), ys: points.map(p => p.y) }
     })()
 
     const residualsData = (() => {
@@ -439,10 +440,10 @@ export function RegressionStudio() {
             return
         }
         const outlierLabels = channelResiduals
-            .filter(r => Math.abs(r.standardizedResidual) > 2)
+            .filter(r => r.isOutlier)
             .map(r => r.label)
         if (outlierLabels.length === 0) {
-            toast('No outliers detected (all |std. residual| < 2)', 'info')
+            toast('No outliers detected', 'info')
             return
         }
         const beforeR2 = regressionModels[effectivePredChannel]?.r2
@@ -1069,7 +1070,7 @@ export function RegressionStudio() {
                             <button onClick={() => setShowCSVImport(true)} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20" title="Import concentrations from CSV">
                                 CSV
                             </button>
-                            <button onClick={handleAutoExcludeOutliers} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 flex items-center gap-0.5" title="Auto-exclude points with |std. residual| > 2" disabled={Object.keys(regressionModels).length === 0}>
+                            <button onClick={handleAutoExcludeOutliers} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 flex items-center gap-0.5" title="Auto-exclude standards that fail the outlier test (studentized residual, corrected for the number of standards)" disabled={Object.keys(regressionModels).length === 0}>
                                 <Zap className="h-2.5 w-2.5" /> Outliers
                             </button>
                             <button onClick={() => setCommittedPoints([])} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 text-destructive" title="Clear all concentrations" disabled={committedPoints.length === 0}>
@@ -1097,7 +1098,7 @@ export function RegressionStudio() {
                                     const predicted = model ? predictFromModel(model, channelValue) : null
                                     const isExcluded = excludedPoints.has(shape.label)
                                     const residual = residualsData[effectivePredChannel]?.find(r => r.label === shape.label)
-                                    const isOutlier = residual && Math.abs(residual.standardizedResidual) > 2
+                                    const isOutlier = residual?.isOutlier
 
                                     return (
                                         <tr key={shape.id} className={`border-t border-muted hover:bg-muted/20 ${
@@ -1143,11 +1144,10 @@ export function RegressionStudio() {
                                                     <>
                                                         {predicted.toFixed(3)}
                                                         {(() => {
-                                                            // RSE is in color units; convert to concentration through the curve's slope
-                                                            const sigma = !committed && model && rseValue !== null
-                                                                ? concentrationUncertainty(model, predicted, rseValue) : null
+                                                            const sigma = !committed && model && predStandards !== null
+                                                                ? concentrationUncertainty(model, predicted, predStandards.xs, predStandards.ys) : null
                                                             return sigma !== null && (
-                                                                <span className="text-muted-foreground/50"> &plusmn;{sigma.toFixed(3)}</span>
+                                                                <span className="text-muted-foreground/50" title="Standard error of the predicted concentration (reading scatter plus calibration uncertainty)"> &plusmn;{sigma.toFixed(3)}</span>
                                                             )
                                                         })()}
                                                     </>
@@ -1258,7 +1258,7 @@ export function RegressionStudio() {
                                                             data: data.map(r => ({ x: r.concentration, y: r.residual })),
                                                             borderColor: channelColors[ch],
                                                             backgroundColor: data.map(r =>
-                                                                Math.abs(r.standardizedResidual) > 2 ? '#f59e0b' : channelColors[ch]
+                                                                r.isOutlier ? '#f59e0b' : channelColors[ch]
                                                             ),
                                                             pointRadius: 6,
                                                             showLine: false

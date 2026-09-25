@@ -206,10 +206,10 @@ function pickQuadraticRoot(model: QuadraticModel, roots: [number, number]): numb
     if (inRange(lo) && inRange(hi)) return dataOnRight ? hi : lo
     if (inRange(lo)) return lo
     if (inRange(hi)) return hi
-    // Extrapolating: only trust it when the whole range sits on one branch
-    if (vertex <= xMin) return hi
-    if (vertex >= xMax) return lo
-    return null
+    // Extrapolating: follow the branch that holds most of the calibration range. When the
+    // vertex sits in the middle of the range neither branch is the data's, so give up.
+    if (xMax - vertex === vertex - xMin) return null
+    return dataOnRight ? hi : lo
 }
 
 export function predict(model: RegressionModel, colorValue: number): number | null {
@@ -244,25 +244,90 @@ export function predict(model: RegressionModel, colorValue: number): number | nu
     }
 }
 
-// Slope dy/dx of the calibration curve at concentration x
-function slopeAt(model: RegressionModel, x: number): number {
-    switch (model.type) {
-        case 'linear': return model.m
-        case 'quadratic': return 2 * model.a * x + model.b
-        case 'power': return x > 0 ? model.a * model.b * Math.pow(x, model.b - 1) : NaN
-        case 'logarithmic': return x > 0 ? model.a / x : NaN
+/**
+ * Every model is an ordinary least-squares fit of z on a design row: y on [1, x] (linear),
+ * y on [1, x, x^2] (quadratic), y on [1, ln x] (logarithmic), ln y on [1, ln x] (power).
+ * Returns the design row for x, or null where the point cannot be part of the fit.
+ */
+function fittedSpace(type: RegressionModelType, x: number, y: number): { row: number[]; z: number } | null {
+    switch (type) {
+        case 'linear': return { row: [1, x], z: y }
+        case 'quadratic': return { row: [1, x, x * x], z: y }
+        case 'logarithmic': return x > 0 ? { row: [1, Math.log(x)], z: y } : null
+        case 'power': return x > 0 && y > 0 ? { row: [1, Math.log(x)], z: Math.log(y) } : null
     }
 }
 
+// (X'X)^-1 for design matrix rows, by Gauss-Jordan with partial pivoting; null if singular
+function invertGram(rows: number[][]): number[][] | null {
+    const p = rows[0]?.length ?? 0
+    const A = Array.from({ length: p }, (_, i) =>
+        Array.from({ length: 2 * p }, (_, j) =>
+            j < p ? rows.reduce((acc, r) => acc + r[i] * r[j], 0) : (j - p === i ? 1 : 0)))
+    for (let col = 0; col < p; col++) {
+        let maxRow = col
+        for (let row = col + 1; row < p; row++) {
+            if (Math.abs(A[row][col]) > Math.abs(A[maxRow][col])) maxRow = row
+        }
+        [A[col], A[maxRow]] = [A[maxRow], A[col]]
+        const pivot = A[col][col]
+        if (Math.abs(pivot) < 1e-12) return null
+        for (let j = 0; j < 2 * p; j++) A[col][j] /= pivot
+        for (let row = 0; row < p; row++) {
+            if (row === col) continue
+            const factor = A[row][col]
+            for (let j = 0; j < 2 * p; j++) A[row][j] -= factor * A[col][j]
+        }
+    }
+    return A.map(r => r.slice(p))
+}
+
+// u' M v
+function quadForm(u: number[], M: number[][], v: number[]): number {
+    let acc = 0
+    for (let i = 0; i < u.length; i++) for (let j = 0; j < v.length; j++) acc += u[i] * M[i][j] * v[j]
+    return acc
+}
+
 /**
- * Converts the residual standard error (color units) into an uncertainty in
- * concentration at x, via the local slope: sigma_x ~= RSE / |dy/dx|.
- * Returns null where the curve is flat or undefined.
+ * Standard error of a concentration read off the curve at x, from the standards (xs, ys)
+ * the curve was fitted to. It is the classic inverse-prediction error: the scatter of a
+ * new reading plus the uncertainty of the fitted curve itself at x,
+ * s * sqrt(1 + g'(X'X)^-1 g) / |slope|, worked out where the model is a straight-line
+ * least-squares fit (ln y and ln x for power, ln x for logarithmic) and carried back to
+ * concentration. For linear this is (s/|m|) * sqrt(1 + 1/n + (x - xbar)^2 / Sxx).
+ * Returns null where the curve is flat or undefined, or there are too few standards.
  */
-export function concentrationUncertainty(model: RegressionModel, x: number, rse: number): number | null {
-    const slope = Math.abs(slopeAt(model, x))
-    if (!Number.isFinite(slope) || slope < 1e-10 || !Number.isFinite(rse)) return null
-    const sigma = rse / slope
+export function concentrationUncertainty(model: RegressionModel, x: number, xs: number[], ys: number[]): number | null {
+    if (!Number.isFinite(x) || !inDomain(model.type, x)) return null
+    const pts = xs.map((xi, i) => fittedSpace(model.type, xi, ys[i])).filter(Boolean) as { row: number[]; z: number }[]
+    const p = paramCount(model.type)
+    if (pts.length <= p) return null
+    const inv = invertGram(pts.map(pt => pt.row))
+    if (!inv) return null
+
+    // Model prediction and slope in the space it was fitted in (u = x or ln x)
+    const zHat = (row: number[]): number => {
+        switch (model.type) {
+            case 'linear': return model.b + model.m * row[1]
+            case 'quadratic': return model.c + model.b * row[1] + model.a * row[2]
+            case 'logarithmic': return model.b + model.a * row[1]
+            case 'power': return Math.log(model.a) + model.b * row[1]
+        }
+    }
+    const slope = Math.abs(
+        model.type === 'linear' ? model.m
+            : model.type === 'quadratic' ? 2 * model.a * x + model.b
+                : model.type === 'logarithmic' ? model.a
+                    : model.b)
+    const ssRes = pts.reduce((acc, pt) => acc + (pt.z - zHat(pt.row)) ** 2, 0)
+    const s = Math.sqrt(ssRes / (pts.length - p))
+    if (!Number.isFinite(slope) || slope < 1e-10 || !Number.isFinite(s)) return null
+
+    const g = fittedSpace(model.type, x, 1)!.row
+    const sigmaU = s * Math.sqrt(1 + Math.max(0, quadForm(g, inv, g))) / slope
+    // Log-x models: d(ln x) = dx / x
+    const sigma = model.type === 'power' || model.type === 'logarithmic' ? x * sigmaU : sigmaU
     return Number.isFinite(sigma) ? sigma : null
 }
 
@@ -282,50 +347,64 @@ export interface ResidualPoint {
     predicted: number
     residual: number
     standardizedResidual: number
-}
-
-// Leverages h_ii = diag(X (X'X)^-1 X') for design matrix rows; null if X'X is singular
-function leverages(rows: number[][]): number[] | null {
-    const p = rows[0]?.length ?? 0
-    // Augmented [X'X | I], inverted by Gauss-Jordan with partial pivoting
-    const A = Array.from({ length: p }, (_, i) =>
-        Array.from({ length: 2 * p }, (_, j) =>
-            j < p ? rows.reduce((acc, r) => acc + r[i] * r[j], 0) : (j - p === i ? 1 : 0)))
-    for (let col = 0; col < p; col++) {
-        let maxRow = col
-        for (let row = col + 1; row < p; row++) {
-            if (Math.abs(A[row][col]) > Math.abs(A[maxRow][col])) maxRow = row
-        }
-        [A[col], A[maxRow]] = [A[maxRow], A[col]]
-        const pivot = A[col][col]
-        if (Math.abs(pivot) < 1e-12) return null
-        for (let j = 0; j < 2 * p; j++) A[col][j] /= pivot
-        for (let row = 0; row < p; row++) {
-            if (row === col) continue
-            const factor = A[row][col]
-            for (let j = 0; j < 2 * p; j++) A[row][j] -= factor * A[col][j]
-        }
-    }
-    return rows.map(r => {
-        let h = 0
-        for (let i = 0; i < p; i++) for (let j = 0; j < p; j++) h += r[i] * A[i][p + j] * r[j]
-        return h
-    })
+    // Beyond the outlier cutoff for this many standards (see outlierCutoff)
+    isOutlier: boolean
 }
 
 /**
- * Residuals over the points inside the model's domain. standardizedResidual is the
- * externally studentized (deleted) residual t_i = e_i / (s_(i) * sqrt(1 - h_ii)),
- * so a single bad standard is not able to hide itself by inflating the error
- * estimate. Leverage comes from the model's design matrix (in ln x for power/log).
+ * Two-sided tail P(|T| > t) of Student's t with integer df, from the closed forms in
+ * Abramowitz & Stegun 26.7.3 / 26.7.4.
+ */
+function studentTTail(t: number, df: number): number {
+    const theta = Math.atan(Math.abs(t) / Math.sqrt(df))
+    const c2 = Math.cos(theta) ** 2
+    let sum = 1, term = 1
+    if (df % 2 === 1) {
+        for (let k = 2; k <= df - 3; k += 2) { term *= k / (k + 1) * c2; sum += term }
+        const inner = df === 1 ? theta : theta + Math.sin(theta) * Math.cos(theta) * sum
+        return 1 - (2 / Math.PI) * inner
+    }
+    for (let k = 1; k <= df - 3; k += 2) { term *= k / (k + 1) * c2; sum += term }
+    return 1 - Math.sin(theta) * sum
+}
+
+/** Critical value t with P(|T| > t) = alpha for Student's t with integer df >= 1. */
+export function studentTCritical(alpha: number, df: number): number {
+    let lo = 0, hi = 1
+    while (studentTTail(hi, df) > alpha && hi < 1e12) hi *= 2
+    for (let i = 0; i < 200 && hi - lo > 1e-12 * hi; i++) {
+        const mid = (lo + hi) / 2
+        if (studentTTail(mid, df) > alpha) lo = mid; else hi = mid
+    }
+    return (lo + hi) / 2
+}
+
+/**
+ * |studentized residual| above which a standard is called an outlier, for n standards and
+ * a model with p parameters: the Bonferroni-corrected 5% test, t_{1 - 0.05/(2n), n - p - 1}.
+ * A fixed cutoff such as 2 would flag a good standard in most small calibrations just by
+ * chance, since each of the n points gets its own try. Infinity when there are too few
+ * standards to judge.
+ */
+export function outlierCutoff(n: number, p: number): number {
+    const df = n - p - 1
+    if (df < 1) return Infinity
+    return studentTCritical(0.05 / n, df)
+}
+
+/**
+ * Residuals over the points inside the model's domain, in the units of the plot.
+ * standardizedResidual is the externally studentized (deleted) residual
+ * t_i = e_i / (s_(i) * sqrt(1 - h_ii)), so a single bad standard is not able to hide itself
+ * by inflating the error estimate. It is worked out in the space the model is a least-squares
+ * fit in (ln y vs ln x for power), where the deleted-variance shortcut is exact, and from a
+ * fresh fit of these points so it never mixes a stale curve with new data.
  */
 export function computeResiduals(
     model: RegressionModel,
     points: { label: string; x: number; y: number }[]
 ): ResidualPoint[] {
     const inside = points.filter(pt => inDomain(model.type, pt.x))
-    const n = inside.length
-    const p = paramCount(model.type)
     const residuals = inside.map(pt => {
         const predicted = evaluateModel(model, pt.x)
         return {
@@ -334,36 +413,45 @@ export function computeResiduals(
             observed: pt.y,
             predicted,
             residual: pt.y - predicted,
-            standardizedResidual: 0
+            standardizedResidual: 0,
+            isOutlier: false
         }
     })
 
+    // Points that are part of the least-squares fit (power needs y > 0 as well)
+    const fitted = inside
+        .map((pt, i) => ({ i, f: fittedSpace(model.type, pt.x, pt.y) }))
+        .filter(e => e.f !== null) as { i: number; f: { row: number[]; z: number } }[]
+    const n = fitted.length
+    const p = paramCount(model.type)
+    const cutoff = outlierCutoff(n, p)
     // The deleted variance needs at least one degree of freedom left after dropping a point
-    if (n - p - 1 < 1) return residuals
+    if (!Number.isFinite(cutoff)) return residuals
 
-    const designRow = (x: number): number[] => {
-        switch (model.type) {
-            case 'linear': return [1, x]
-            case 'quadratic': return [1, x, x * x]
-            case 'power':
-            case 'logarithmic': return [1, Math.log(x)]
-        }
-    }
-    const h = leverages(inside.map(pt => designRow(pt.x)))
-    if (!h) return residuals
+    const rows = fitted.map(e => e.f.row)
+    const inv = invertGram(rows)
+    if (!inv) return residuals
+    const xtz = Array.from({ length: p }, (_, j) => fitted.reduce((acc, e) => acc + e.f.row[j] * e.f.z, 0))
+    const beta = inv.map(r => r.reduce((acc, v, j) => acc + v * xtz[j], 0))
+    const e = fitted.map(({ f }) => f.z - f.row.reduce((acc, v, j) => acc + v * beta[j], 0))
+    const h = rows.map(r => quadForm(r, inv, r))
 
-    const ssRes = residuals.reduce((acc, r) => acc + r.residual ** 2, 0)
-    const tiny = 1e-12 * (ssRes + residuals.reduce((acc, r) => acc + r.observed ** 2, 0))
-    residuals.forEach((r, i) => {
-        const oneMinusH = 1 - h[i]
+    const ssRes = e.reduce((acc, v) => acc + v * v, 0)
+    const tiny = 1e-12 * (ssRes + fitted.reduce((acc, { f }) => acc + f.z * f.z, 0))
+    fitted.forEach(({ i }, k) => {
+        const r = residuals[i]
+        const oneMinusH = 1 - h[k]
         if (oneMinusH <= 1e-10) return
-        const deletedVar = Math.max(0, (ssRes - r.residual ** 2 / oneMinusH) / (n - p - 1))
-        if (deletedVar <= tiny) {
+        const deletedSSE = ssRes - e[k] ** 2 / oneMinusH
+        // Below zero is rounding error, not a sign the other points are exact: no verdict
+        if (deletedSSE < -tiny) return
+        if (deletedSSE <= tiny) {
             // Every other point sits exactly on the curve
-            r.standardizedResidual = r.residual ** 2 > tiny ? Math.sign(r.residual) * Infinity : 0
-            return
+            r.standardizedResidual = e[k] ** 2 > tiny ? Math.sign(e[k]) * Infinity : 0
+        } else {
+            r.standardizedResidual = e[k] / (Math.sqrt(deletedSSE / (n - p - 1)) * Math.sqrt(oneMinusH))
         }
-        r.standardizedResidual = r.residual / (Math.sqrt(deletedVar) * Math.sqrt(oneMinusH))
+        r.isOutlier = Math.abs(r.standardizedResidual) > cutoff
     })
 
     return residuals
