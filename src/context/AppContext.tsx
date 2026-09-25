@@ -165,6 +165,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await clearAllCache()
     }, [])
 
+    const clearSaveError = useCallback(() => setLastSaveError(null), [])
+
     const saveCache = useCallback(() => {
         forceSaveState(images, {
             shapes,
@@ -293,7 +295,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             canUndo: undoRedo.canUndo,
             canRedo: undoRedo.canRedo,
             clearCache, saveCache, isCacheLoaded,
-            lastSaveError, clearSaveError: () => setLastSaveError(null)
+            lastSaveError, clearSaveError
         }}>
             {children}
         </AppContext.Provider>
