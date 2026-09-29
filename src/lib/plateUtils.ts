@@ -182,23 +182,10 @@ function splitDelimited(text: string, delimiter: string): CsvField[][] {
     return rows
 }
 
-function isBlankRow(row: CsvField[]): boolean {
-    return row.every(f => !f.quoted && f.value.trim() === '')
-}
-
-/** Pick tab, semicolon or comma: whichever splits the most lines into at least two fields */
+/** Pick tab or comma, based on whether the first line has a tab in it */
 function detectDelimiter(text: string): string {
-    let best = ','
-    let bestCount = 0
-    for (const candidate of ['\t', ';', ',']) {
-        const rows = splitDelimited(text, candidate).filter(r => !isBlankRow(r)).slice(0, 20)
-        const count = rows.filter(r => r.length >= 2).length
-        if (count > bestCount) {
-            best = candidate
-            bestCount = count
-        }
-    }
-    return best
+    const firstLine = text.split(/\r?\n/).find(l => l.trim() !== '') ?? ''
+    return firstLine.includes('\t') ? '\t' : ','
 }
 
 function cleanField(field: CsvField): string {
@@ -206,11 +193,10 @@ function cleanField(field: CsvField): string {
     return field.quoted ? trimmed : trimmed.replace(/^'|'$/g, '')
 }
 
-/** Parse a whole-field number, optionally followed by a unit ("0.5 mM"); a comma decimal ("0,5") is accepted when allowed */
-function parseNumber(raw: string, allowCommaDecimal: boolean): number | null {
+/** Parse a whole-field number, optionally followed by a unit ("0.5 mM") */
+function parseNumber(raw: string): number | null {
     // Drop a trailing unit such as "mM", "µg/mL" or "%"
-    let s = raw.replace(/\s*[a-zµμ%][a-zµμ%/ ]*$/i, '')
-    if (allowCommaDecimal && /^[+-]?\d*,\d+(e[+-]?\d+)?$/i.test(s)) s = s.replace(',', '.')
+    const s = raw.replace(/\s*[a-zµμ%][a-zµμ%/ ]*$/i, '')
     if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return null
     const n = Number(s)
     return Number.isFinite(n) ? n : null
@@ -228,8 +214,7 @@ export function parseConcentrationCSV(text: string): { label: string; concentrat
         if (row.length < 2) continue
 
         const label = cleanField(row[0])
-        // A comma can only be a decimal separator when it is not the delimiter, or inside quotes
-        const value = parseNumber(cleanField(row[1]), delimiter !== ',' || row[1].quoted)
+        const value = parseNumber(cleanField(row[1]))
 
         // Rows whose value is not a number (headers, notes, blanks) are skipped
         if (value !== null && label) {

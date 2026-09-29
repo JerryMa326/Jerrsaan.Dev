@@ -37,13 +37,6 @@ describe('parseConcentrationCSV', () => {
         ])
     })
 
-    it('reads a quoted comma-decimal value in a comma-separated file', () => {
-        expect(parseConcentrationCSV('A1,"0,5"\nA2,"1.25"')).toEqual([
-            { label: 'A1', concentration: 0.5 },
-            { label: 'A2', concentration: 1.25 },
-        ])
-    })
-
     it('keeps a quoted label containing the delimiter intact', () => {
         expect(parseConcentrationCSV('"Sample, 1",0.5')).toEqual([
             { label: 'Sample, 1', concentration: 0.5 },
@@ -53,14 +46,6 @@ describe('parseConcentrationCSV', () => {
     it('unescapes doubled quotes inside a quoted field', () => {
         expect(parseConcentrationCSV('"Std ""high""",2')).toEqual([
             { label: 'Std "high"', concentration: 2 },
-        ])
-    })
-
-    it('reads semicolon-separated files with comma decimals (Excel in comma-decimal locales)', () => {
-        expect(parseConcentrationCSV('Well;Concentration\r\nA1;0,5\r\nA2;1,25\r\nA3;2')).toEqual([
-            { label: 'A1', concentration: 0.5 },
-            { label: 'A2', concentration: 1.25 },
-            { label: 'A3', concentration: 2 },
         ])
     })
 
@@ -76,9 +61,6 @@ describe('parseConcentrationCSV', () => {
             { label: 'A2', concentration: 10 },
             { label: 'A3', concentration: 2 },
             { label: 'A4', concentration: 5 },
-        ])
-        expect(parseConcentrationCSV('Well;Conc\nA1;0,5 mM')).toEqual([
-            { label: 'A1', concentration: 0.5 },
         ])
     })
 
