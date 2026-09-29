@@ -12,10 +12,9 @@ import { parseConcentrationCSV } from '@/lib/plateUtils'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
-    computeResiduals, concentrationUncertainty,
+    computeResiduals, concentrationUncertainty, parsePastedCells,
     type RegressionModel, type RegressionModelType, type ResidualPoint
 } from '@/lib/regressionUtils'
-import { parsePastedCells } from '@/lib/regressionUtils'
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -45,271 +44,6 @@ ChartJS.register(
 type ColorChannel = 'red' | 'green' | 'blue' | 'cyan' | 'magenta' | 'yellow' | 'black' | 'magnitude'
 
 const ALL_CHANNELS: ColorChannel[] = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'black', 'magnitude']
-
-const channelColors: Record<ColorChannel, string> = {
-    red: '#ef4444',
-    green: '#22c55e',
-    blue: '#3b82f6',
-    cyan: '#06b6d4',
-    magenta: '#d946ef',
-    yellow: '#eab308',
-    black: '#71717a',
-    magnitude: '#a855f7'
-}
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-
-type PlotPoint = { x: number; y: number; label: string; color: [number, number, number]; stdDev?: [number, number, number] }
-// Datasets carry a stable id (datasetIdKey="id") so a refit updates the curve in place
-type ScatterDataset = ChartDataset<'scatter'> & { id: string }
-
-function fitRange(points: { x: number }[]): [number, number] {
-    const xs = points.map(p => p.x)
-    return [Math.min(...xs) * 0.9, Math.max(...xs) * 1.1]
-}
-
-// Samples a fitted curve, skipping x values where the model is undefined
-function fitCurve(model: RegressionModel, minX: number, maxX: number) {
-    const numPoints = model.type === 'linear' ? 2 : 50
-    const step = (maxX - minX) / (numPoints - 1)
-    const curve: { x: number; y: number }[] = []
-    for (let i = 0; i < numPoints; i++) {
-        const x = minX + step * i
-        const y = evaluateModel(model, x)
-        if (Number.isFinite(y)) curve.push({ x, y })
-    }
-    return curve
-}
-
-// Excluded standards: hollow grey, drawn but not part of the fit
-function excludedDataset(points: { x: number; y: number }[]): ScatterDataset {
-    return {
-        id: 'excluded',
-        label: 'Excluded',
-        data: points,
-        borderColor: 'rgba(161,161,170,0.9)',
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        pointRadius: 6,
-        pointHoverRadius: 9,
-        showLine: false
-    }
-}
-
-function buildChartData(channel: ColorChannel, included: PlotPoint[], excluded: PlotPoint[], model: RegressionModel | undefined) {
-    const datasets: ScatterDataset[] = [{
-        id: 'points',
-        label: capitalize(channel),
-        data: included,
-        borderColor: channelColors[channel],
-        backgroundColor: channelColors[channel],
-        pointRadius: 8,
-        pointHoverRadius: 12,
-        showLine: false
-    }]
-    if (excluded.length > 0) datasets.push(excludedDataset(excluded))
-
-    if (model && included.length >= 2) {
-        const [minX, maxX] = fitRange(included)
-        datasets.push({
-            id: 'fit',
-            label: `R² = ${model.r2.toFixed(4)}`,
-            data: fitCurve(model, minX, maxX),
-            borderColor: channelColors[channel],
-            backgroundColor: 'transparent',
-            borderDash: [5, 5],
-            pointRadius: 0,
-            showLine: true,
-            borderWidth: 2
-        })
-    }
-
-    return { datasets }
-}
-
-const MODEL_CONFIGS: { type: RegressionModelType; color: string; dash: number[]; label: string }[] = [
-    { type: 'linear', color: '#ffffff', dash: [], label: 'Linear' },
-    { type: 'quadratic', color: '#06b6d4', dash: [5, 5], label: 'Quadratic' },
-    { type: 'power', color: '#f59e0b', dash: [2, 2], label: 'Power' },
-    { type: 'logarithmic', color: '#ec4899', dash: [10, 5, 2, 5], label: 'Logarithmic' },
-]
-
-function buildMultiModelChartData(channel: ColorChannel, included: PlotPoint[], excluded: PlotPoint[]) {
-    const datasets: ScatterDataset[] = [{
-        id: 'points',
-        label: capitalize(channel),
-        data: included,
-        borderColor: channelColors[channel],
-        backgroundColor: channelColors[channel],
-        pointRadius: 8,
-        pointHoverRadius: 12,
-        showLine: false
-    }]
-    if (excluded.length > 0) datasets.push(excludedDataset(excluded))
-
-    if (included.length < 2) return { datasets }
-
-    const xs = included.map(p => p.x)
-    const ys = included.map(p => p.y)
-    const [minX, maxX] = fitRange(included)
-
-    for (const cfg of MODEL_CONFIGS) {
-        let model: RegressionModel | null = null
-        try {
-            switch (cfg.type) {
-                case 'linear': model = fitLinear(xs, ys); break
-                case 'quadratic': model = fitQuadratic(xs, ys); break
-                case 'power': model = fitPower(xs, ys); break
-                case 'logarithmic': model = fitLogarithmic(xs, ys); break
-            }
-        } catch { /* skip models that fail */ }
-        if (!model || !isFinite(model.r2)) continue
-
-        datasets.push({
-            id: `fit-${cfg.type}`,
-            label: `${cfg.label} (R²=${model.r2.toFixed(4)})`,
-            data: fitCurve(model, minX, maxX),
-            borderColor: cfg.color,
-            backgroundColor: 'transparent',
-            borderDash: cfg.dash,
-            pointRadius: 0,
-            showLine: true,
-            borderWidth: 2
-        })
-    }
-
-    return { datasets }
-}
-
-function buildOverlayChartData(
-    channels: ColorChannel[],
-    pointsFor: (ch: ColorChannel) => { included: PlotPoint[]; excluded: PlotPoint[] },
-    models: Record<string, RegressionModel>
-) {
-    const datasets: ScatterDataset[] = []
-    const allExcluded: PlotPoint[] = []
-
-    for (const channel of channels) {
-        const { included, excluded } = pointsFor(channel)
-        allExcluded.push(...excluded)
-
-        datasets.push({
-            id: `${channel}-points`,
-            label: capitalize(channel),
-            data: included,
-            borderColor: channelColors[channel],
-            backgroundColor: channelColors[channel],
-            pointRadius: 6,
-            showLine: false
-        })
-
-        const model = models[channel]
-        if (model && included.length >= 2) {
-            const [minX, maxX] = fitRange(included)
-            datasets.push({
-                id: `${channel}-fit`,
-                label: `${channel} fit`,
-                data: fitCurve(model, minX, maxX),
-                borderColor: channelColors[channel],
-                backgroundColor: 'transparent',
-                borderDash: [5, 5],
-                pointRadius: 0,
-                showLine: true,
-                borderWidth: 2
-            })
-        }
-    }
-    if (allExcluded.length > 0) datasets.push(excludedDataset(allExcluded))
-
-    return { datasets }
-}
-
-// Std-dev error bars. colorStdDev is per R, G, B, so bars are only drawn on those
-// charts (channelIndex 0-2); other channels are in different units and get none.
-const RGB_INDEX: Partial<Record<ColorChannel, number>> = { red: 0, green: 1, blue: 2 }
-
-const errorBarPlugin: Plugin<'scatter', { channelIndex?: number }> = {
-    id: 'errorBars',
-    afterDatasetsDraw(chart, _args, options) {
-        const channelIdx = options.channelIndex ?? -1
-        if (channelIdx < 0) return
-        const ctx = chart.ctx
-        const yScale = chart.scales.y
-
-        chart.data.datasets.forEach((dataset, di) => {
-            if (!chart.isDatasetVisible(di)) return
-            const meta = chart.getDatasetMeta(di)
-            const points = dataset.data as ({ x: number; y: number; stdDev?: [number, number, number] } | null)[]
-            points.forEach((point, i: number) => {
-                if (!point?.stdDev || !meta.data[i]) return
-                const sd = point.stdDev[channelIdx] || 0
-                if (sd <= 0) return
-                const { x } = meta.data[i].getProps(['x', 'y'])
-                const yTop = yScale.getPixelForValue(point.y + sd)
-                const yBot = yScale.getPixelForValue(point.y - sd)
-
-                ctx.save()
-                ctx.strokeStyle = 'rgba(255,255,255,0.5)'
-                ctx.lineWidth = 1.5
-                ctx.beginPath()
-                ctx.moveTo(x, yTop)
-                ctx.lineTo(x, yBot)
-                // caps
-                ctx.moveTo(x - 3, yTop)
-                ctx.lineTo(x + 3, yTop)
-                ctx.moveTo(x - 3, yBot)
-                ctx.lineTo(x + 3, yBot)
-                ctx.stroke()
-                ctx.restore()
-            })
-        })
-    }
-}
-const CHART_PLUGINS = [errorBarPlugin]
-
-function buildChartOptions(channel: ColorChannel, overlayMode: boolean, multiModelMode: boolean) {
-    return {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { display: overlayMode || multiModelMode, labels: { font: { size: 10 } } },
-            tooltip: {
-                callbacks: {
-                    label: (context: TooltipItem<'scatter'>) => {
-                        const point = context.raw as { x: number; y: number; label?: string }
-                        if (point.label) {
-                            return [`Sample: ${point.label}`, `Conc: ${point.x}`, `Value: ${point.y.toFixed(2)}`]
-                        }
-                        return `${point.y.toFixed(2)}`
-                    }
-                }
-            },
-            errorBars: { channelIndex: overlayMode || multiModelMode ? -1 : (RGB_INDEX[channel] ?? -1) }
-        },
-        scales: {
-            x: {
-                type: 'linear' as const,
-                title: { display: true, text: 'Concentration (mM)', font: { size: 10 } },
-                grid: { color: 'rgba(255,255,255,0.05)' }
-            },
-            y: {
-                type: 'linear' as const,
-                title: { display: true, text: overlayMode ? 'Value' : channel, font: { size: 10 } },
-                grid: { color: 'rgba(255,255,255,0.05)' }
-            }
-        }
-    }
-}
-
-const RESIDUAL_CHART_OPTIONS = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-        x: { type: 'linear' as const, title: { display: true, text: 'Conc.', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        y: { type: 'linear' as const, title: { display: true, text: 'Residual', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
-    }
-}
 
 function computeAllModels(
     shapes: Shape[],
@@ -549,12 +283,12 @@ export function RegressionStudio() {
     const [showCSVImport, setShowCSVImport] = useState(false)
     const [mobileRegTab, setMobileRegTab] = useState<'data' | 'charts'>('data')
 
-    const getDisplayColor = useCallback((color: [number, number, number]): [number, number, number] => {
+    const getDisplayColor = (color: [number, number, number]): [number, number, number] => {
         if (rawRgbMode) return color
         return calibrateColor(color, colorCalibration)
-    }, [rawRgbMode, colorCalibration])
+    }
 
-    const getColorValue = useCallback((color: [number, number, number], channel: ColorChannel): number => {
+    const getColorValue = (color: [number, number, number], channel: ColorChannel): number => {
         const c = getDisplayColor(color)
         const cmyk = rgbToCmyk(c)
         switch (channel) {
@@ -568,24 +302,7 @@ export function RegressionStudio() {
             case 'magnitude': return Math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2)
             default: return 0
         }
-    }, [getDisplayColor])
-
-    const shapeByLabel = useMemo(() => new Map(shapes.map(s => [s.label, s])), [shapes])
-    const committedByLabel = useMemo(() => new Map(committedPoints.map(p => [p.label, p])), [committedPoints])
-
-    // Committed standards that have a shape, split into the fitted ones and the excluded ones
-    const plotPoints = useCallback((channel: ColorChannel) => {
-        const included: PlotPoint[] = []
-        const excluded: PlotPoint[] = []
-        for (const pt of committedPoints) {
-            const shape = shapeByLabel.get(pt.label)
-            if (!shape) continue
-            const point = { x: pt.y, y: getColorValue(shape.color, channel), label: pt.label, color: shape.color, stdDev: shape.colorStdDev }
-            if (excludedPoints.has(pt.label)) excluded.push(point)
-            else included.push(point)
-        }
-        return { included, excluded }
-    }, [committedPoints, shapeByLabel, excludedPoints, getColorValue])
+    }
 
     const effectivePredChannel: ColorChannel = useMemo(() => {
         if (predictionChannel !== 'auto') return predictionChannel
@@ -598,51 +315,58 @@ export function RegressionStudio() {
     }, [predictionChannel, regressionModels])
 
     // Standards behind the prediction channel's curve, for the +- on predicted concentrations
-    const predStandards = useMemo(() => {
+    const predStandards = (() => {
         const model = regressionModels[effectivePredChannel]
         if (!model) return null
-        const points = plotPoints(effectivePredChannel).included
+        const points = committedPoints
+            .filter(pt => !excludedPoints.has(pt.label))
+            .map(pt => {
+                const shape = shapes.find(s => s.label === pt.label)
+                if (!shape) return null
+                return { x: pt.y, y: getColorValue(shape.color, effectivePredChannel) }
+            })
+            .filter(Boolean) as { x: number; y: number }[]
         if (points.length < 3) return null
         return { xs: points.map(p => p.x), ys: points.map(p => p.y) }
-    }, [regressionModels, effectivePredChannel, plotPoints])
+    })()
 
-    // Residuals for every chart shown, plus the prediction channel (its outlier flags drive the table)
-    const residualsData = useMemo(() => {
+    const residualsData = (() => {
         const results: Record<string, ResidualPoint[]> = {}
-        const channels = activeCharts.includes(effectivePredChannel) ? activeCharts : [...activeCharts, effectivePredChannel]
-        for (const ch of channels) {
+        // Also the prediction channel, whose outlier flags drive the table even when its chart is hidden
+        for (const ch of new Set([...activeCharts, effectivePredChannel])) {
             const model = regressionModels[ch]
             if (!model) continue
-            const points = plotPoints(ch).included
+            const points = committedPoints
+                .filter(pt => !excludedPoints.has(pt.label))
+                .map(pt => {
+                    const shape = shapes.find(s => s.label === pt.label)
+                    if (!shape) return null
+                    return { label: pt.label, x: pt.y, y: getColorValue(shape.color, ch as ColorChannel) }
+                })
+                .filter(Boolean) as { label: string; x: number; y: number }[]
             if (points.length >= 2) results[ch] = computeResiduals(model, points)
         }
         return results
-    }, [activeCharts, effectivePredChannel, regressionModels, plotPoints])
+    })()
 
-    const residualByLabel = useMemo(
-        () => new Map((residualsData[effectivePredChannel] ?? []).map(r => [r.label, r])),
-        [residualsData, effectivePredChannel]
-    )
-
-    const shapeLabels = useMemo(() => shapes.map(s => s.label), [shapes])
+    const shapeLabels = shapes.map(s => s.label)
 
     const handleInputKeyDown = (e: React.KeyboardEvent, currentLabel: string) => {
         const idx = shapeLabels.indexOf(currentLabel)
         let targetIdx: number | null = null
 
+        // From the last/first row, Tab moves focus out of the table as usual
         if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowDown') {
+            if (e.key !== 'Tab' || idx < shapeLabels.length - 1) e.preventDefault()
             targetIdx = idx + 1
         } else if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowUp') {
+            if (e.key !== 'Tab' || idx > 0) e.preventDefault()
             targetIdx = idx - 1
         }
-        if (targetIdx === null) return
 
-        const target = targetIdx >= 0 && targetIdx < shapeLabels.length
-            ? inputRefsMap.current.get(shapeLabels[targetIdx])
-            : undefined
-        // From the first/last row, Tab moves focus out of the table as usual
-        if (target || e.key !== 'Tab') e.preventDefault()
-        target?.focus()
+        if (targetIdx !== null && targetIdx >= 0 && targetIdx < shapeLabels.length) {
+            inputRefsMap.current.get(shapeLabels[targetIdx])?.focus()
+        }
     }
 
     const handlePaste = (e: React.ClipboardEvent, currentLabel: string) => {
@@ -742,6 +466,99 @@ export function RegressionStudio() {
         })
         const r2Text = beforeR2 !== undefined ? ` (was R\u00b2=${beforeR2.toFixed(4)})` : ''
         toast(`Excluded ${outlierLabels.length} outlier(s)${r2Text}`, 'success')
+    }
+
+    // Excluded standards: hollow grey circles, drawn but not part of the fit
+    const excludedDataset = (channels: ColorChannel[]): ChartDataset<'scatter'>[] => {
+        const data = channels.flatMap(channel => committedPoints
+            .filter(pt => excludedPoints.has(pt.label))
+            .map(pt => {
+                const shape = shapes.find(s => s.label === pt.label)
+                if (!shape) return null
+                return { x: pt.y, y: getColorValue(shape.color, channel), label: pt.label }
+            })
+            .filter(Boolean) as { x: number; y: number; label: string }[])
+        if (data.length === 0) return []
+        return [{
+            label: 'Excluded',
+            data,
+            borderColor: 'rgba(161,161,170,0.9)',
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            pointRadius: 6,
+            pointHoverRadius: 9,
+            showLine: false
+        }]
+    }
+
+    const createMultiModelChartData = (channel: ColorChannel) => {
+        const dataPoints = committedPoints
+            .filter(pt => !excludedPoints.has(pt.label))
+            .map(pt => {
+                const shape = shapes.find(s => s.label === pt.label)
+                if (!shape) return null
+                return { x: pt.y, y: getColorValue(shape.color, channel), label: pt.label, color: shape.color, stdDev: shape.colorStdDev }
+            })
+            .filter(Boolean) as { x: number; y: number; label: string; color: [number, number, number]; stdDev?: [number, number, number] }[]
+
+        const datasets: ChartDataset<'scatter'>[] = [{
+            label: channel.charAt(0).toUpperCase() + channel.slice(1),
+            data: dataPoints,
+            borderColor: channelColors[channel],
+            backgroundColor: channelColors[channel],
+            pointRadius: 8,
+            pointHoverRadius: 12,
+            showLine: false
+        }, ...excludedDataset([channel])]
+
+        if (dataPoints.length < 2) return { datasets }
+
+        const xs = dataPoints.map(p => p.x)
+        const ys = dataPoints.map(p => p.y)
+        const minX = Math.min(...xs) * 0.9
+        const maxX = Math.max(...xs) * 1.1
+
+        const modelConfigs: { type: RegressionModelType; color: string; dash: number[]; label: string }[] = [
+            { type: 'linear', color: '#ffffff', dash: [], label: 'Linear' },
+            { type: 'quadratic', color: '#06b6d4', dash: [5, 5], label: 'Quadratic' },
+            { type: 'power', color: '#f59e0b', dash: [2, 2], label: 'Power' },
+            { type: 'logarithmic', color: '#ec4899', dash: [10, 5, 2, 5], label: 'Logarithmic' },
+        ]
+
+        for (const cfg of modelConfigs) {
+            let model: RegressionModel | null = null
+            try {
+                switch (cfg.type) {
+                    case 'linear': model = fitLinear(xs, ys); break
+                    case 'quadratic': model = fitQuadratic(xs, ys); break
+                    case 'power': model = fitPower(xs, ys); break
+                    case 'logarithmic': model = fitLogarithmic(xs, ys); break
+                }
+            } catch { /* skip models that fail */ }
+            if (!model || !isFinite(model.r2)) continue
+
+            const numPoints = model.type === 'linear' ? 2 : 50
+            const step = (maxX - minX) / (numPoints - 1)
+            const curveData = []
+            for (let i = 0; i < numPoints; i++) {
+                const x = minX + step * i
+                const y = evaluateModel(model, x)
+                if (isFinite(y)) curveData.push({ x, y })
+            }
+
+            datasets.push({
+                label: `${cfg.label} (R\u00b2=${model.r2.toFixed(4)})`,
+                data: curveData,
+                borderColor: cfg.color,
+                backgroundColor: 'transparent',
+                borderDash: cfg.dash,
+                pointRadius: 0,
+                showLine: true,
+                borderWidth: 2
+            })
+        }
+
+        return { datasets }
     }
 
     const exportModel = () => {
@@ -958,6 +775,17 @@ export function RegressionStudio() {
         toast('Charts exported as PNG', 'success')
     }, [overlayMode, toast])
 
+    const channelColors: Record<ColorChannel, string> = {
+        red: '#ef4444',
+        green: '#22c55e',
+        blue: '#3b82f6',
+        cyan: '#06b6d4',
+        magenta: '#d946ef',
+        yellow: '#eab308',
+        black: '#71717a',
+        magnitude: '#a855f7'
+    }
+
     const toggleChart = (channel: ColorChannel) => {
         setActiveCharts(prev =>
             prev.includes(channel)
@@ -966,61 +794,183 @@ export function RegressionStudio() {
         )
     }
 
-    // Chart data and options are memoized on their real inputs so unrelated renders
-    // (input focus, typing in another row) do not make every chart update
-    const chartDataByChannel = useMemo(() => {
-        const out: Partial<Record<ColorChannel, { datasets: ScatterDataset[] }>> = {}
-        if (overlayMode) return out
-        for (const ch of activeCharts) {
-            const { included, excluded } = plotPoints(ch)
-            out[ch] = multiModelMode
-                ? buildMultiModelChartData(ch, included, excluded)
-                : buildChartData(ch, included, excluded, regressionModels[ch])
+    const createChartData = (channel: ColorChannel) => {
+        const dataPoints = committedPoints.filter(pt => !excludedPoints.has(pt.label)).map(pt => {
+            const shape = shapes.find(s => s.label === pt.label)
+            if (!shape) return null
+            return {
+                x: pt.y,
+                y: getColorValue(shape.color, channel),
+                label: pt.label,
+                color: shape.color,
+                stdDev: shape.colorStdDev
+            }
+        }).filter(Boolean) as { x: number; y: number; label: string; color: [number, number, number]; stdDev?: [number, number, number] }[]
+
+        const datasets: ChartDataset<'scatter'>[] = [{
+            label: channel.charAt(0).toUpperCase() + channel.slice(1),
+            data: dataPoints,
+            borderColor: channelColors[channel],
+            backgroundColor: channelColors[channel],
+            pointRadius: 8,
+            pointHoverRadius: 12,
+            showLine: false
+        }, ...excludedDataset([channel])]
+
+        const model = regressionModels[channel]
+        if (model && dataPoints.length >= 2) {
+            const xValues = dataPoints.map(p => p.x)
+            const minX = Math.min(...xValues) * 0.9
+            const maxX = Math.max(...xValues) * 1.1
+            const numPoints = model.type === 'linear' ? 2 : 50
+            const step = (maxX - minX) / (numPoints - 1)
+
+            const curveData = []
+            for (let i = 0; i < numPoints; i++) {
+                const x = minX + step * i
+                // Power/log curves are undefined at x <= 0; leave those x values out
+                const y = evaluateModel(model, x)
+                if (isFinite(y)) curveData.push({ x, y })
+            }
+
+            datasets.push({
+                label: `R² = ${model.r2.toFixed(4)}`,
+                data: curveData,
+                borderColor: channelColors[channel],
+                backgroundColor: 'transparent',
+                borderDash: [5, 5],
+                pointRadius: 0,
+                showLine: true,
+                borderWidth: 2
+            })
         }
-        return out
-    }, [overlayMode, multiModelMode, activeCharts, plotPoints, regressionModels])
 
-    const overlayChartData = useMemo(
-        () => overlayMode ? buildOverlayChartData(activeCharts, plotPoints, regressionModels) : { datasets: [] },
-        [overlayMode, activeCharts, plotPoints, regressionModels]
-    )
+        return { datasets }
+    }
 
-    const chartOptionsByChannel = useMemo(
-        () => Object.fromEntries(ALL_CHANNELS.map(ch => [ch, buildChartOptions(ch, overlayMode, multiModelMode)])) as
-            Record<ColorChannel, ReturnType<typeof buildChartOptions>>,
-        [overlayMode, multiModelMode]
-    )
+    const createOverlayChartData = () => {
+        const datasets: ChartDataset<'scatter'>[] = []
 
-    const residualChartData = useMemo(() => {
-        const out: Record<string, { datasets: ChartDataset<'scatter'>[] }> = {}
-        for (const [ch, data] of Object.entries(residualsData)) {
-            if (data.length === 0) continue
-            out[ch] = {
-                datasets: [{
-                    label: 'Residuals',
-                    data: data.map(r => ({ x: r.concentration, y: r.residual })),
-                    borderColor: channelColors[ch as ColorChannel],
-                    backgroundColor: data.map(r =>
-                        r.isOutlier ? '#f59e0b' : channelColors[ch as ColorChannel]
-                    ),
-                    pointRadius: 6,
-                    showLine: false
-                }, {
-                    label: 'Zero',
-                    data: [
-                        { x: Math.min(...data.map(r => r.concentration)) * 0.9, y: 0 },
-                        { x: Math.max(...data.map(r => r.concentration)) * 1.1, y: 0 }
-                    ],
-                    borderColor: 'rgba(255,255,255,0.3)',
-                    borderDash: [4, 4],
+        for (const channel of activeCharts) {
+            const dataPoints = committedPoints.filter(pt => !excludedPoints.has(pt.label)).map(pt => {
+                const shape = shapes.find(s => s.label === pt.label)
+                if (!shape) return null
+                return { x: pt.y, y: getColorValue(shape.color, channel) }
+            }).filter(Boolean) as { x: number; y: number }[]
+
+            datasets.push({
+                label: channel.charAt(0).toUpperCase() + channel.slice(1),
+                data: dataPoints,
+                borderColor: channelColors[channel],
+                backgroundColor: channelColors[channel],
+                pointRadius: 6,
+                showLine: false
+            })
+
+            const model = regressionModels[channel]
+            if (model && dataPoints.length >= 2) {
+                const xValues = dataPoints.map(p => p.x)
+                const minX = Math.min(...xValues) * 0.9
+                const maxX = Math.max(...xValues) * 1.1
+                const numPoints = model.type === 'linear' ? 2 : 50
+                const step = (maxX - minX) / (numPoints - 1)
+                const curveData = []
+                for (let i = 0; i < numPoints; i++) {
+                    const x = minX + step * i
+                    // Power/log curves are undefined at x <= 0; leave those x values out
+                    const y = evaluateModel(model, x)
+                    if (isFinite(y)) curveData.push({ x, y })
+                }
+
+                datasets.push({
+                    label: `${channel} fit`,
+                    data: curveData,
+                    borderColor: channelColors[channel],
+                    backgroundColor: 'transparent',
+                    borderDash: [5, 5],
                     pointRadius: 0,
                     showLine: true,
-                    borderWidth: 1
-                }]
+                    borderWidth: 2
+                })
             }
         }
-        return out
-    }, [residualsData])
+        datasets.push(...excludedDataset(activeCharts))
+
+        return { datasets }
+    }
+
+    // Error bars plugin
+    // colorStdDev is per R, G, B, so bars are only drawn on those charts (channelIndex 0-2, set in chartOptions)
+    const errorBarPlugin: Plugin<'scatter', { channelIndex?: number }> = {
+        id: 'errorBars',
+        afterDatasetsDraw(chart, _args, options) {
+            const channelIdx = options.channelIndex ?? -1
+            if (channelIdx < 0) return
+            const ctx = chart.ctx
+            const dataset = chart.data.datasets[0]
+            if (!dataset) return
+
+            const meta = chart.getDatasetMeta(0)
+            const points = dataset.data as ({ x: number; y: number; stdDev?: [number, number, number] })[]
+            points.forEach((point, i: number) => {
+                if (!point.stdDev) return
+                const { x } = meta.data[i].getProps(['x', 'y'])
+                const sd = point.stdDev[channelIdx] || 0
+                if (sd <= 0) return
+
+                const yScale = chart.scales.y
+                const yTop = yScale.getPixelForValue(point.y + sd)
+                const yBot = yScale.getPixelForValue(point.y - sd)
+
+                ctx.save()
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+                ctx.lineWidth = 1.5
+                ctx.beginPath()
+                ctx.moveTo(x, yTop)
+                ctx.lineTo(x, yBot)
+                // caps
+                ctx.moveTo(x - 3, yTop)
+                ctx.lineTo(x + 3, yTop)
+                ctx.moveTo(x - 3, yBot)
+                ctx.lineTo(x + 3, yBot)
+                ctx.stroke()
+                ctx.restore()
+            })
+        }
+    }
+
+    const chartOptions = (channel: ColorChannel) => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: overlayMode || multiModelMode, labels: { font: { size: 10 } } },
+            tooltip: {
+                callbacks: {
+                    label: (context: TooltipItem<'scatter'>) => {
+                        const point = context.raw as { x: number; y: number; label?: string }
+                        if (point.label) {
+                            return [`Sample: ${point.label}`, `Conc: ${point.x}`, `Value: ${point.y.toFixed(2)}`]
+                        }
+                        return `${point.y.toFixed(2)}`
+                    }
+                }
+            },
+            // No error bars in the overlay or model comparison, where points of other channels or fits share the chart
+            errorBars: { channelIndex: overlayMode || multiModelMode ? -1 : ['red', 'green', 'blue'].indexOf(channel) }
+        },
+        scales: {
+            x: {
+                type: 'linear' as const,
+                title: { display: true, text: 'Concentration (mM)', font: { size: 10 } },
+                grid: { color: 'rgba(255,255,255,0.05)' }
+            },
+            y: {
+                type: 'linear' as const,
+                title: { display: true, text: overlayMode ? 'Value' : channel, font: { size: 10 } },
+                grid: { color: 'rgba(255,255,255,0.05)' }
+            }
+        }
+    })
 
     if (shapes.length === 0) {
         return (
@@ -1190,13 +1140,13 @@ export function RegressionStudio() {
                             </thead>
                             <tbody>
                                 {shapes.map(shape => {
-                                    const committed = committedByLabel.get(shape.label)
+                                    const committed = committedPoints.find(p => p.label === shape.label)
                                     const c = getDisplayColor(shape.color)
                                     const channelValue = getColorValue(shape.color, effectivePredChannel)
                                     const model = regressionModels[effectivePredChannel]
                                     const predicted = model ? predictFromModel(model, channelValue) : null
                                     const isExcluded = excludedPoints.has(shape.label)
-                                    const residual = residualByLabel.get(shape.label)
+                                    const residual = residualsData[effectivePredChannel]?.find(r => r.label === shape.label)
                                     const isOutlier = residual?.isOutlier
 
                                     return (
@@ -1250,7 +1200,7 @@ export function RegressionStudio() {
                                                             )
                                                         })()}
                                                     </>
-                                                ) : '\u2014'}
+                                                ) : '-'}
                                             </td>
                                             <td className="p-1 w-6">
                                                 {committed && (
@@ -1306,7 +1256,7 @@ export function RegressionStudio() {
                                 <h4 className="text-xs font-semibold">All Channels Overlay</h4>
                             </div>
                             <div className="h-56 md:h-72">
-                                <Scatter options={chartOptionsByChannel.magnitude} data={overlayChartData} datasetIdKey="id" />
+                                <Scatter options={chartOptions('magnitude')} data={createOverlayChartData()} />
                             </div>
                         </div>
                     ) : (
@@ -1325,10 +1275,9 @@ export function RegressionStudio() {
                                     </div>
                                     <div className={multiModelMode ? "h-52 md:h-64" : "h-40 md:h-48"}>
                                         <Scatter
-                                            options={chartOptionsByChannel[ch]}
-                                            data={chartDataByChannel[ch] ?? { datasets: [] }}
-                                            datasetIdKey="id"
-                                            plugins={CHART_PLUGINS}
+                                            options={chartOptions(ch)}
+                                            data={multiModelMode ? createMultiModelChartData(ch) : createChartData(ch)}
+                                            plugins={[errorBarPlugin]}
                                         />
                                     </div>
                                 </div>
@@ -1338,20 +1287,53 @@ export function RegressionStudio() {
                     </div>
 
                     {/* Residual Plots */}
-                    {showResiduals && activeCharts.some(ch => residualChartData[ch]) && (
+                    {showResiduals && activeCharts.some(ch => residualsData[ch]?.length) && (
                         <div className="mt-4 space-y-3">
                             <h3 className="text-xs font-semibold">Residual Plots</h3>
                             <div className={`grid gap-3 ${activeCharts.length <= 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
                                 {activeCharts.map(ch => {
-                                    const data = residualChartData[ch]
-                                    if (!data) return null
+                                    const data = residualsData[ch]
+                                    if (!data || data.length === 0) return null
                                     return (
                                         <div key={`residual-${ch}`} className="bg-card border rounded-lg p-3">
                                             <h4 className="text-xs font-semibold capitalize mb-2" style={{ color: channelColors[ch] }}>
                                                 {ch} Residuals
                                             </h4>
                                             <div className="h-32 md:h-40">
-                                                <Scatter data={data} options={RESIDUAL_CHART_OPTIONS} />
+                                                <Scatter
+                                                    data={{
+                                                        datasets: [{
+                                                            label: 'Residuals',
+                                                            data: data.map(r => ({ x: r.concentration, y: r.residual })),
+                                                            borderColor: channelColors[ch],
+                                                            backgroundColor: data.map(r =>
+                                                                r.isOutlier ? '#f59e0b' : channelColors[ch]
+                                                            ),
+                                                            pointRadius: 6,
+                                                            showLine: false
+                                                        }, {
+                                                            label: 'Zero',
+                                                            data: [
+                                                                { x: Math.min(...data.map(r => r.concentration)) * 0.9, y: 0 },
+                                                                { x: Math.max(...data.map(r => r.concentration)) * 1.1, y: 0 }
+                                                            ],
+                                                            borderColor: 'rgba(255,255,255,0.3)',
+                                                            borderDash: [4, 4],
+                                                            pointRadius: 0,
+                                                            showLine: true,
+                                                            borderWidth: 1
+                                                        }]
+                                                    }}
+                                                    options={{
+                                                        responsive: true,
+                                                        maintainAspectRatio: false,
+                                                        plugins: { legend: { display: false } },
+                                                        scales: {
+                                                            x: { type: 'linear' as const, title: { display: true, text: 'Conc.', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                                                            y: { type: 'linear' as const, title: { display: true, text: 'Residual', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                                                        }
+                                                    }}
+                                                />
                                             </div>
                                         </div>
                                     )
