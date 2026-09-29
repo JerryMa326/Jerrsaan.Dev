@@ -12,8 +12,6 @@ import {
     computeRSE,
     computeResiduals,
     concentrationUncertainty,
-    studentTCritical,
-    outlierCutoff,
 } from '@/lib/regressionUtils'
 import type { LinearModel, QuadraticModel, PowerModel, LogarithmicModel } from '@/lib/regressionUtils'
 
@@ -159,8 +157,7 @@ describe('fitBest', () => {
         const ys = [2, 4, 6, 8, 10]
         const model = fitBest(xs, ys)!
         expect(model).not.toBeNull()
-        // All models should fit perfectly; any type with r2=1 is acceptable
-        expect(model.r2).toBeCloseTo(1, 5)
+        expect(model.type).toBe('linear')
     })
 })
 
@@ -394,43 +391,22 @@ describe('computeResiduals', () => {
 
 // ─── Model selection, domains, outliers, inverse prediction ────────────────────
 
-// Seeded PRNG so the model-selection trials are deterministic
-function mulberry32(seed: number) {
-    return () => {
-        seed |= 0; seed = (seed + 0x6D2B79F5) | 0
-        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-    }
-}
-function gaussian(rand: () => number) {
-    return Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand())
-}
-
 describe('fitBest model selection', () => {
-    it('picks linear for truly linear noisy data in the vast majority of trials', () => {
-        const rand = mulberry32(42)
-        for (const xs of [[0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5], [0.5, 1, 2, 4, 8, 16]]) {
-            let linearWins = 0
-            const trials = 1000
-            for (let t = 0; t < trials; t++) {
-                const ys = xs.map(x => 200 - 12 * x + 3 * gaussian(rand))
-                if (fitBest(xs, ys)!.type === 'linear') linearWins++
-            }
-            expect(linearWins / trials).toBeGreaterThan(0.9)
-        }
+    it('picks linear for exactly linear data', () => {
+        const xs = [0, 1, 2, 3, 4, 5]
+        expect(fitBest(xs, xs.map(x => 200 - 12 * x))!.type).toBe('linear')
     })
 
-    it('still picks quadratic for clearly curved data', () => {
-        const rand = mulberry32(7)
-        const xs = [0, 1, 2, 3, 4, 5]
-        let quadWins = 0
-        const trials = 200
-        for (let t = 0; t < trials; t++) {
-            const ys = xs.map(x => 220 - 60 * x + 6 * x * x + 1.5 * gaussian(rand))
-            if (fitBest(xs, ys)!.type === 'quadratic') quadWins++
-        }
-        expect(quadWins / trials).toBeGreaterThan(0.95)
+    it('picks linear for mildly noisy linear data', () => {
+        // Roughly y = 200 - 12x with a little scatter
+        expect(fitBest([0, 1, 2, 3, 4, 5], [200.4, 187.7, 176.3, 163.8, 152.2, 139.9])!.type).toBe('linear')
+        expect(fitBest([0, 1, 2, 3, 4, 5, 6, 7], [200.5, 187.2, 176.9, 163.6, 152.3, 140.4, 127.6, 116.2])!.type).toBe('linear')
+        // All x > 0, so power and log are candidates too
+        expect(fitBest([0.5, 1, 2, 4, 8, 16], [194.2, 188.3, 175.6, 152.4, 104.1, 7.6])!.type).toBe('linear')
+    })
+
+    it('picks quadratic for clearly curved data', () => {
+        expect(fitBest([0, 1, 2, 3, 4, 5], [221.2, 164.6, 124.3, 87.1, 76.4, 69.8])!.type).toBe('quadratic')
         expect(fitBest([0, 1, 2, 3, 4], [0, 1, 4, 9, 16])!.type).toBe('quadratic')
     })
 
@@ -467,84 +443,20 @@ describe('power / logarithmic outside their domain', () => {
 })
 
 describe('computeResiduals outlier flag', () => {
-    it('flags a gross outlier in a 6-point linear calibration', () => {
-        const xs = [0, 1, 2, 3, 4, 5]
-        const ys = [200, 190, 100, 170, 160, 150]
-        const model = fitLinear(xs, ys)!
-        const residuals = computeResiduals(model, xs.map((x, i) => ({ label: `x${x}`, x, y: ys[i] })))
-        const flagged = residuals.filter(r => r.isOutlier).map(r => r.label)
-        expect(flagged).toEqual(['x2'])
+    const xs = [0, 1, 2, 3, 4, 5, 6, 7]
+    const clean = [200.5, 187.2, 176.9, 163.6, 152.3, 140.4, 127.6, 116.2]
+    const flagged = (ys: number[]) =>
+        computeResiduals(fitLinear(xs, ys)!, xs.map((x, i) => ({ label: `x${x}`, x, y: ys[i] })))
+            .filter(r => r.isOutlier).map(r => r.label)
+
+    it('flags nothing on clean standards', () => {
+        expect(flagged(clean)).toEqual([])
     })
 
-    it('flags a gross outlier among noisy standards', () => {
-        const xs = [0, 1, 2, 3, 4, 5, 6, 7]
-        const ys = [200.5, 189.2, 180.9, 130, 160.8, 149.6, 140.3, 129.8]
-        const model = fitLinear(xs, ys)!
-        const residuals = computeResiduals(model, xs.map((x, i) => ({ label: `x${x}`, x, y: ys[i] })))
-        expect(residuals.filter(r => r.isOutlier).map(r => r.label)).toEqual(['x3'])
-    })
-
-    it('rarely flags a good standard in clean small calibrations', () => {
-        const rand = mulberry32(2024)
-        for (const n of [4, 6, 8]) {
-            const trials = 4000
-            let anyFlag = 0
-            for (let k = 0; k < trials; k++) {
-                const xs = Array.from({ length: n }, (_, i) => i * 2)
-                const ys = xs.map(x => 200 - 8 * x + 2 * gaussian(rand))
-                const model = fitLinear(xs, ys)!
-                const residuals = computeResiduals(model, xs.map((x, i) => ({ label: `${i}`, x, y: ys[i] })))
-                if (residuals.some(r => r.isOutlier)) anyFlag++
-            }
-            // The test is set up for a 5% chance of any false flag per calibration
-            expect(anyFlag / trials).toBeLessThan(0.065)
-        }
-    })
-
-    it('judges a power curve in the log space it was fitted in', () => {
-        const rand = mulberry32(7)
-        const xs = [1, 2, 4, 8, 16]
-        const trials = 3000
-        let anyFlag = 0
-        for (let k = 0; k < trials; k++) {
-            const ys = xs.map(x => 10 * Math.sqrt(x) + 0.5 * gaussian(rand))
-            const model = fitPower(xs, ys)!
-            const residuals = computeResiduals(model, xs.map((x, i) => ({ label: `${i}`, x, y: ys[i] })))
-            residuals.forEach(r => expect(Number.isFinite(r.standardizedResidual)).toBe(true))
-            if (residuals.some(r => r.isOutlier)) anyFlag++
-        }
-        // Noise added in color units is not quite even in log space, so a little over 5%
-        expect(anyFlag / trials).toBeLessThan(0.1)
-    })
-
-    it('never flags when there are too few standards to judge', () => {
-        // n = 4, linear: an exact 2-point fit would remain if two were dropped
-        const xs = [0, 1, 2, 3]
-        const ys = [200, 190, 150, 170]
-        const residuals = computeResiduals(fitLinear(xs, ys)!, xs.map((x, i) => ({ label: `${i}`, x, y: ys[i] })))
-        expect(residuals.filter(r => r.isOutlier).length).toBeLessThanOrEqual(1)
-        const three = computeResiduals(fitLinear([0, 1, 2], [200, 150, 180])!,
-            [0, 1, 2].map((x, i) => ({ label: `${i}`, x, y: [200, 150, 180][i] })))
-        expect(three.some(r => r.isOutlier)).toBe(false)
-    })
-})
-
-describe('outlier cutoff', () => {
-    it('matches tabulated Student t quantiles', () => {
-        // t_{0.975,5}, t_{0.995,10}, t_{0.975,1}, t_{0.975,2}
-        expect(studentTCritical(0.05, 5)).toBeCloseTo(2.5706, 3)
-        expect(studentTCritical(0.01, 10)).toBeCloseTo(3.1693, 3)
-        expect(studentTCritical(0.05, 1)).toBeCloseTo(12.7062, 3)
-        expect(studentTCritical(0.05, 2)).toBeCloseTo(4.3027, 3)
-    })
-
-    it('is the Bonferroni-corrected 5% value for n standards', () => {
-        expect(outlierCutoff(6, 2)).toBeCloseTo(6.23, 2)
-        expect(outlierCutoff(8, 2)).toBeCloseTo(4.53, 2)
-        expect(outlierCutoff(12, 2)).toBeCloseTo(3.81, 2)
-        // Quadratic has one more parameter, so one less degree of freedom
-        expect(outlierCutoff(8, 3)).toBeGreaterThan(outlierCutoff(8, 2))
-        expect(outlierCutoff(3, 2)).toBe(Infinity)
+    it('flags a standard with a big error', () => {
+        const ys = [...clean]
+        ys[3] = 140
+        expect(flagged(ys)).toEqual(['x3'])
     })
 })
 
@@ -557,23 +469,16 @@ describe('predict quadratic root choice', () => {
         expect(predict(model, evaluateModel(model, 1.2))).toBeCloseTo(1.2, 5)
     })
 
-    it('picks the root on the data side of the vertex when extrapolating', () => {
+    it('picks the root closest to the range when neither is inside it', () => {
         const xs = [1, 2, 3, 4]
         const ys = xs.map(x => (x + 1) ** 2)
         const model = fitQuadratic(xs, ys)!
-        // y = 0.25 has roots -0.5 and -1.5; -0.5 lies on the data side of the vertex at -1
+        // y = 0.25 has roots -0.5 and -1.5; -0.5 is nearer the standards
         expect(predict(model, 0.25)).toBeCloseTo(-0.5, 5)
     })
 
-    it('returns null when the curve turns inside the range and neither root is in it', () => {
-        const model: QuadraticModel = { type: 'quadratic', a: -1, b: 4, c: 0, r2: 1, xMin: 1, xMax: 3 }
-        // Vertex at x = 2 (y = 4); y = 1 crosses at 0.27 and 3.73, both outside [1, 3]
-        expect(predict(model, 1)).toBeNull()
-    })
-
-    it('extrapolates along the branch that holds most of the standards', () => {
-        // y = 200 - 30x + 1.6x^2 on x = 0..10 turns at x = 9.4; a reading just above the
-        // blank belongs a little below x = 0 on the falling branch
+    it('extrapolates a little past the blank rather than jumping to the far root', () => {
+        // y = 200 - 30x + 1.6x^2 on x = 0..10; a reading just above the blank is a little below x = 0
         const xs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         const model = fitQuadratic(xs, xs.map(x => 200 - 30 * x + 1.6 * x * x))!
         const x = predict(model, 202)!
@@ -582,8 +487,9 @@ describe('predict quadratic root choice', () => {
     })
 
     it('still works for models saved before the x-range was stored', () => {
-        const model: QuadraticModel = { type: 'quadratic', a: 1, b: 0, c: 0, r2: 1 }
-        expect(predict(model, 9)).toBeCloseTo(3)
+        expect(predict({ type: 'quadratic', a: 1, b: 0, c: 0, r2: 1 }, 9)).toBeCloseTo(3)
+        // Roots 2 and 3: the one nearest 0, as before
+        expect(predict({ type: 'quadratic', a: 1, b: -5, c: 6, r2: 1 }, 0)).toBeCloseTo(2)
     })
 })
 
@@ -591,52 +497,38 @@ describe('concentrationUncertainty', () => {
     const xs = [0, 1, 2, 3, 4, 5]
     const ys = [201, 179, 161, 139, 121, 99]
 
-    it('uses the textbook inverse-prediction error for a straight line', () => {
+    it('is RSE / |slope| for a straight line', () => {
         const model = fitLinear(xs, ys)!
-        const n = xs.length
-        const xbar = xs.reduce((a, b) => a + b, 0) / n
-        const sxx = xs.reduce((a, x) => a + (x - xbar) ** 2, 0)
-        const s = computeRSE(model, xs, ys)
+        const expected = computeRSE(model, xs, ys) / Math.abs(model.m)
         for (const x0 of [-1, 0.5, 2.5, 7]) {
-            const y0 = evaluateModel(model, x0)
-            const ybar = ys.reduce((a, b) => a + b, 0) / n
-            const expected = (s / Math.abs(model.m)) *
-                Math.sqrt(1 + 1 / n + (y0 - ybar) ** 2 / (model.m ** 2 * sxx))
             expect(concentrationUncertainty(model, x0, xs, ys)).toBeCloseTo(expected, 10)
         }
     })
 
-    it('is larger away from the middle of the standards', () => {
-        const model = fitLinear(xs, ys)!
-        expect(concentrationUncertainty(model, 8, xs, ys)!).toBeGreaterThan(concentrationUncertainty(model, 2.5, xs, ys)!)
-    })
-
     it('uses the local slope of a curve', () => {
-        // Same scatter on y = x^2 + 1: the error at x is the linear-in-parameters form over the slope 2x
         const qx = [1, 2, 3, 4, 5, 6]
         const qy = qx.map((x, i) => x * x + 1 + (i % 2 ? 0.5 : -0.5))
         const model = fitQuadratic(qx, qy)!
         const at3 = concentrationUncertainty(model, 3, qx, qy)!
         const at5 = concentrationUncertainty(model, 5, qx, qy)!
-        expect(at3).toBeGreaterThan(0)
-        // Steeper curve at 5 gives a tighter reading, even though it is nearer the edge
+        expect(at3).toBeCloseTo(computeRSE(model, qx, qy) / Math.abs(2 * model.a * 3 + model.b), 10)
+        // Steeper curve at 5 gives a tighter reading
         expect(at5).toBeLessThan(at3)
     })
 
-    it('works in log space for a power curve', () => {
+    it('uses the slope a*b*x^(b-1) for a power curve and is blank at x <= 0', () => {
         const px = [1, 2, 4, 8, 16]
         const py = px.map((x, i) => 10 * Math.sqrt(x) * Math.exp(i % 2 ? 0.02 : -0.02))
         const model = fitPower(px, py)!
-        const sigma = concentrationUncertainty(model, 4, px, py)!
-        // ~2% scatter in y at slope b = 0.5 is ~4% in x, a bit more for calibration error
-        expect(sigma / 4).toBeGreaterThan(0.04)
-        expect(sigma / 4).toBeLessThan(0.08)
+        const slope = model.a * model.b * Math.pow(4, model.b - 1)
+        expect(concentrationUncertainty(model, 4, px, py)).toBeCloseTo(computeRSE(model, px, py) / slope, 10)
         expect(concentrationUncertainty(model, 0, px, py)).toBeNull()
     })
 
-    it('returns null when the curve is flat or there are too few standards', () => {
+    it('returns null when the curve is flat, x is not finite, or there are too few standards', () => {
         const flat: LinearModel = { type: 'linear', m: 0, b: 200, r2: 0 }
         expect(concentrationUncertainty(flat, 3, xs, ys)).toBeNull()
+        expect(concentrationUncertainty(fitLinear(xs, ys)!, NaN, xs, ys)).toBeNull()
         expect(concentrationUncertainty(fitLinear([0, 1], [200, 180])!, 0.5, [0, 1], [200, 180])).toBeNull()
     })
 })

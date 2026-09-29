@@ -731,7 +731,7 @@ export function RegressionStudio() {
             .filter(r => r.isOutlier)
             .map(r => r.label)
         if (outlierLabels.length === 0) {
-            toast('No outliers detected', 'info')
+            toast('No outliers detected (all |std. residual| < 2)', 'info')
             return
         }
         const beforeR2 = regressionModels[effectivePredChannel]?.r2
@@ -1169,7 +1169,7 @@ export function RegressionStudio() {
                             <button onClick={() => setShowCSVImport(true)} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20" title="Import concentrations from CSV">
                                 CSV
                             </button>
-                            <button onClick={handleAutoExcludeOutliers} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 flex items-center gap-0.5" title="Auto-exclude standards that fail the outlier test (studentized residual, corrected for the number of standards)" disabled={Object.keys(regressionModels).length === 0}>
+                            <button onClick={handleAutoExcludeOutliers} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 flex items-center gap-0.5" title="Auto-exclude points with |std. residual| > 2" disabled={Object.keys(regressionModels).length === 0}>
                                 <Zap className="h-2.5 w-2.5" /> Outliers
                             </button>
                             <button onClick={() => { setCommittedPoints([]); setExcludedPoints(new Set()) }} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 text-destructive" title="Clear all concentrations" disabled={committedPoints.length === 0}>
@@ -1213,7 +1213,7 @@ export function RegressionStudio() {
                                                     />
                                                     <span className={`font-mono font-bold ${isExcluded ? 'line-through' : ''}`}>{shape.label}</span>
                                                     {isOutlier && !isExcluded && (
-                                                        <span className="text-amber-500 text-[10px]" title={`Std. residual: ${Number.isFinite(residual!.standardizedResidual) ? residual!.standardizedResidual.toFixed(2) : 'very large'}`}>&#9888;</span>
+                                                        <span className="text-amber-500 text-[10px]" title={`Std. residual: ${residual!.standardizedResidual.toFixed(2)}`}>&#9888;</span>
                                                     )}
                                                 </div>
                                             </td>
@@ -1246,7 +1246,7 @@ export function RegressionStudio() {
                                                             const sigma = !committed && model && predStandards !== null
                                                                 ? concentrationUncertainty(model, predicted, predStandards.xs, predStandards.ys) : null
                                                             return sigma !== null && (
-                                                                <span className="text-muted-foreground/50" title="Standard error of the predicted concentration (reading scatter plus calibration uncertainty)"> &plusmn;{sigma.toFixed(3)}</span>
+                                                                <span className="text-muted-foreground/50" title="Typical scatter of the standards, in concentration units"> &plusmn;{sigma.toFixed(3)}</span>
                                                             )
                                                         })()}
                                                     </>
