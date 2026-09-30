@@ -12,7 +12,7 @@ import { parseConcentrationCSV } from '@/lib/plateUtils'
 import {
     fitLinear, fitQuadratic, fitPower, fitLogarithmic, fitBest,
     evaluateModel, predict as predictFromModel, formatEquation,
-    computeRSE, computeResiduals,
+    computeResiduals, concentrationUncertainty, parsePastedCells,
     type RegressionModel, type RegressionModelType, type ResidualPoint
 } from '@/lib/regressionUtils'
 import {
@@ -269,7 +269,7 @@ export function RegressionStudio() {
     const { toast } = useToast()
     const [activeCharts, setActiveCharts] = useState<ColorChannel[]>(['red', 'green', 'blue'])
     const [selectedPoint, setSelectedPoint] = useState<{ label: string; color: [number, number, number] } | null>(null)
-    const [modelType, setModelType] = useState<RegressionModelType | 'best'>('linear')
+    const { modelType, setModelType } = useApp()
     const [overlayMode, setOverlayMode] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const chartsContainerRef = useRef<HTMLDivElement>(null)
@@ -277,7 +277,7 @@ export function RegressionStudio() {
     const [focusedLabel, setFocusedLabel] = useState<string | null>(null)
     const [showDilutionModal, setShowDilutionModal] = useState(false)
     const [predictionChannel, setPredictionChannel] = useState<ColorChannel | 'auto'>('auto')
-    const [excludedPoints, setExcludedPoints] = useState<Set<string>>(new Set())
+    const { excludedPoints, setExcludedPoints } = useApp()
     const [showResiduals, setShowResiduals] = useState(false)
     const [multiModelMode, setMultiModelMode] = useState(false)
     const [showCSVImport, setShowCSVImport] = useState(false)
@@ -314,7 +314,8 @@ export function RegressionStudio() {
         return bestCh
     }, [predictionChannel, regressionModels])
 
-    const rseValue = (() => {
+    // Standards behind the prediction channel's curve, for the +- on predicted concentrations
+    const predStandards = (() => {
         const model = regressionModels[effectivePredChannel]
         if (!model) return null
         const points = committedPoints
@@ -326,12 +327,13 @@ export function RegressionStudio() {
             })
             .filter(Boolean) as { x: number; y: number }[]
         if (points.length < 3) return null
-        return computeRSE(model, points.map(p => p.x), points.map(p => p.y))
+        return { xs: points.map(p => p.x), ys: points.map(p => p.y) }
     })()
 
     const residualsData = (() => {
         const results: Record<string, ResidualPoint[]> = {}
-        for (const ch of activeCharts) {
+        // Also the prediction channel, whose outlier flags drive the table even when its chart is hidden
+        for (const ch of new Set([...activeCharts, effectivePredChannel])) {
             const model = regressionModels[ch]
             if (!model) continue
             const points = committedPoints
@@ -353,11 +355,12 @@ export function RegressionStudio() {
         const idx = shapeLabels.indexOf(currentLabel)
         let targetIdx: number | null = null
 
+        // From the last/first row, Tab moves focus out of the table as usual
         if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter' || e.key === 'ArrowDown') {
-            e.preventDefault()
+            if (e.key !== 'Tab' || idx < shapeLabels.length - 1) e.preventDefault()
             targetIdx = idx + 1
         } else if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowUp') {
-            e.preventDefault()
+            if (e.key !== 'Tab' || idx > 0) e.preventDefault()
             targetIdx = idx - 1
         }
 
@@ -370,11 +373,12 @@ export function RegressionStudio() {
         const text = e.clipboardData.getData('text/plain')
         if (!text.includes('\t') && !text.includes('\n')) return
         e.preventDefault()
-        const values = text.split(/[\t\n\r]+/).map(v => v.trim()).filter(v => v !== '')
+        const cells = parsePastedCells(text)
         const startIdx = shapeLabels.indexOf(currentLabel)
-        values.forEach((val, i) => {
+        cells.forEach((val, i) => {
             const targetIdx = startIdx + i
-            if (targetIdx < shapeLabels.length) {
+            // A blank cell leaves its well unchanged, so later values stay aligned
+            if (val !== '' && targetIdx < shapeLabels.length) {
                 handleConcentrationChange(shapeLabels[targetIdx], val)
             }
         })
@@ -400,19 +404,28 @@ export function RegressionStudio() {
 
     const [isAutoFitting, setIsAutoFitting] = useState(false)
     const autoFitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // Set by importModel so the auto-fit does not replace the calibration it just loaded
+    const skipAutoFitRef = useRef(false)
+    // Whether the last auto-fit produced models. Only then is a drop below 2 standards a reason
+    // to clear them; models imported on their own, without standards, are kept.
+    const lastAutoFitHadModelsRef = useRef(false)
 
     // Auto-fit regression as concentrations are entered (300ms debounce)
     useEffect(() => {
         if (autoFitTimerRef.current) clearTimeout(autoFitTimerRef.current)
-
-        const validPoints = committedPoints.filter(pt => shapes.some(s => s.label === pt.label))
-        if (validPoints.length < 2) return
+        if (skipAutoFitRef.current) {
+            skipAutoFitRef.current = false
+            return
+        }
 
         autoFitTimerRef.current = setTimeout(() => {
             setIsAutoFitting(true)
             queueMicrotask(() => {
                 const newModels = computeAllModels(shapes, committedPoints, modelType, getColorValue, excludedPoints)
+                // Fewer than 2 usable standards: drop the old fit instead of leaving it on screen
                 if (newModels) setRegressionModels(newModels)
+                else if (lastAutoFitHadModelsRef.current) setRegressionModels(prev => Object.keys(prev).length > 0 ? {} : prev)
+                lastAutoFitHadModelsRef.current = newModels !== null
                 setIsAutoFitting(false)
             })
         }, 300)
@@ -439,7 +452,7 @@ export function RegressionStudio() {
             return
         }
         const outlierLabels = channelResiduals
-            .filter(r => Math.abs(r.standardizedResidual) > 2)
+            .filter(r => r.isOutlier)
             .map(r => r.label)
         if (outlierLabels.length === 0) {
             toast('No outliers detected (all |std. residual| < 2)', 'info')
@@ -453,6 +466,29 @@ export function RegressionStudio() {
         })
         const r2Text = beforeR2 !== undefined ? ` (was R\u00b2=${beforeR2.toFixed(4)})` : ''
         toast(`Excluded ${outlierLabels.length} outlier(s)${r2Text}`, 'success')
+    }
+
+    // Excluded standards: hollow grey circles, drawn but not part of the fit
+    const excludedDataset = (channels: ColorChannel[]): ChartDataset<'scatter'>[] => {
+        const data = channels.flatMap(channel => committedPoints
+            .filter(pt => excludedPoints.has(pt.label))
+            .map(pt => {
+                const shape = shapes.find(s => s.label === pt.label)
+                if (!shape) return null
+                return { x: pt.y, y: getColorValue(shape.color, channel), label: pt.label }
+            })
+            .filter(Boolean) as { x: number; y: number; label: string }[])
+        if (data.length === 0) return []
+        return [{
+            label: 'Excluded',
+            data,
+            borderColor: 'rgba(161,161,170,0.9)',
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            pointRadius: 6,
+            pointHoverRadius: 9,
+            showLine: false
+        }]
     }
 
     const createMultiModelChartData = (channel: ColorChannel) => {
@@ -473,7 +509,7 @@ export function RegressionStudio() {
             pointRadius: 8,
             pointHoverRadius: 12,
             showLine: false
-        }]
+        }, ...excludedDataset([channel])]
 
         if (dataPoints.length < 2) return { datasets }
 
@@ -561,7 +597,7 @@ export function RegressionStudio() {
                 (cmyk[0] * 100).toFixed(1), (cmyk[1] * 100).toFixed(1), (cmyk[2] * 100).toFixed(1), (cmyk[3] * 100).toFixed(1),
                 mag.toFixed(2),
                 committed?.y ?? '',
-                predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : ''
+                predicted !== null && Number.isFinite(predicted) ? predicted.toFixed(3) : ''
             ].join(',')
         })
 
@@ -588,7 +624,7 @@ export function RegressionStudio() {
                 committed ? 'standard' : 'unknown',
                 c[0], c[1], c[2],
                 committed?.y ?? '',
-                predicted !== null && !isNaN(predicted) ? predicted.toFixed(3) : ''
+                predicted !== null && Number.isFinite(predicted) ? predicted.toFixed(3) : ''
             ].join('\t')
         })
         const text = [headers.join('\t'), ...rows].join('\n')
@@ -656,6 +692,11 @@ export function RegressionStudio() {
 
                 const data = result.data
 
+                // Loading points or a model type re-triggers the auto-fit, which would refit from
+                // the current photo's colors and overwrite the imported models; skip that one run
+                if (data.regressionModels && (data.committedPoints || (data.modelType && data.modelType !== modelType))) {
+                    skipAutoFitRef.current = true
+                }
                 if (data.committedPoints) {
                     setCommittedPoints(data.committedPoints)
                 }
@@ -716,7 +757,7 @@ export function RegressionStudio() {
         // Title
         ctx.fillStyle = '#ffffff'
         ctx.font = 'bold 16px system-ui, sans-serif'
-        ctx.fillText('ChemClub Analyst — Regression Charts', padding, 28)
+        ctx.fillText('ChemClub Analyst - Regression Charts', padding, 28)
 
         canvases.forEach((canvas, i) => {
             const col = i % cols
@@ -754,7 +795,7 @@ export function RegressionStudio() {
     }
 
     const createChartData = (channel: ColorChannel) => {
-        const dataPoints = committedPoints.map(pt => {
+        const dataPoints = committedPoints.filter(pt => !excludedPoints.has(pt.label)).map(pt => {
             const shape = shapes.find(s => s.label === pt.label)
             if (!shape) return null
             return {
@@ -774,7 +815,7 @@ export function RegressionStudio() {
             pointRadius: 8,
             pointHoverRadius: 12,
             showLine: false
-        }]
+        }, ...excludedDataset([channel])]
 
         const model = regressionModels[channel]
         if (model && dataPoints.length >= 2) {
@@ -787,7 +828,9 @@ export function RegressionStudio() {
             const curveData = []
             for (let i = 0; i < numPoints; i++) {
                 const x = minX + step * i
-                curveData.push({ x, y: evaluateModel(model, x) })
+                // Power/log curves are undefined at x <= 0; leave those x values out
+                const y = evaluateModel(model, x)
+                if (isFinite(y)) curveData.push({ x, y })
             }
 
             datasets.push({
@@ -809,7 +852,7 @@ export function RegressionStudio() {
         const datasets: ChartDataset<'scatter'>[] = []
 
         for (const channel of activeCharts) {
-            const dataPoints = committedPoints.map(pt => {
+            const dataPoints = committedPoints.filter(pt => !excludedPoints.has(pt.label)).map(pt => {
                 const shape = shapes.find(s => s.label === pt.label)
                 if (!shape) return null
                 return { x: pt.y, y: getColorValue(shape.color, channel) }
@@ -834,7 +877,9 @@ export function RegressionStudio() {
                 const curveData = []
                 for (let i = 0; i < numPoints; i++) {
                     const x = minX + step * i
-                    curveData.push({ x, y: evaluateModel(model, x) })
+                    // Power/log curves are undefined at x <= 0; leave those x values out
+                    const y = evaluateModel(model, x)
+                    if (isFinite(y)) curveData.push({ x, y })
                 }
 
                 datasets.push({
@@ -849,14 +894,18 @@ export function RegressionStudio() {
                 })
             }
         }
+        datasets.push(...excludedDataset(activeCharts))
 
         return { datasets }
     }
 
     // Error bars plugin
-    const errorBarPlugin: Plugin<'scatter'> = {
+    // colorStdDev is per R, G, B, so bars are only drawn on those charts (channelIndex 0-2, set in chartOptions)
+    const errorBarPlugin: Plugin<'scatter', { channelIndex?: number }> = {
         id: 'errorBars',
-        afterDatasetsDraw(chart) {
+        afterDatasetsDraw(chart, _args, options) {
+            const channelIdx = options.channelIndex ?? -1
+            if (channelIdx < 0) return
             const ctx = chart.ctx
             const dataset = chart.data.datasets[0]
             if (!dataset) return
@@ -866,7 +915,6 @@ export function RegressionStudio() {
             points.forEach((point, i: number) => {
                 if (!point.stdDev) return
                 const { x } = meta.data[i].getProps(['x', 'y'])
-                const channelIdx = activeCharts[0] === 'red' ? 0 : activeCharts[0] === 'green' ? 1 : 2
                 const sd = point.stdDev[channelIdx] || 0
                 if (sd <= 0) return
 
@@ -906,7 +954,9 @@ export function RegressionStudio() {
                         return `${point.y.toFixed(2)}`
                     }
                 }
-            }
+            },
+            // No error bars in the overlay or model comparison, where points of other channels or fits share the chart
+            errorBars: { channelIndex: overlayMode || multiModelMode ? -1 : ['red', 'green', 'blue'].indexOf(channel) }
         },
         scales: {
             x: {
@@ -1072,7 +1122,7 @@ export function RegressionStudio() {
                             <button onClick={handleAutoExcludeOutliers} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 flex items-center gap-0.5" title="Auto-exclude points with |std. residual| > 2" disabled={Object.keys(regressionModels).length === 0}>
                                 <Zap className="h-2.5 w-2.5" /> Outliers
                             </button>
-                            <button onClick={() => setCommittedPoints([])} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 text-destructive" title="Clear all concentrations" disabled={committedPoints.length === 0}>
+                            <button onClick={() => { setCommittedPoints([]); setExcludedPoints(new Set()) }} className="px-1.5 py-0.5 text-[10px] bg-muted rounded hover:bg-muted-foreground/20 text-destructive" title="Clear all concentrations" disabled={committedPoints.length === 0}>
                                 Clear
                             </button>
                         </div>
@@ -1097,7 +1147,7 @@ export function RegressionStudio() {
                                     const predicted = model ? predictFromModel(model, channelValue) : null
                                     const isExcluded = excludedPoints.has(shape.label)
                                     const residual = residualsData[effectivePredChannel]?.find(r => r.label === shape.label)
-                                    const isOutlier = residual && Math.abs(residual.standardizedResidual) > 2
+                                    const isOutlier = residual?.isOutlier
 
                                     return (
                                         <tr key={shape.id} className={`border-t border-muted hover:bg-muted/20 ${
@@ -1139,14 +1189,18 @@ export function RegressionStudio() {
                                                 />
                                             </td>
                                             <td className={`p-1.5 font-mono text-[10px] ${!committed && model ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                                                {predicted !== null && !isNaN(predicted) ? (
+                                                {predicted !== null && Number.isFinite(predicted) ? (
                                                     <>
                                                         {predicted.toFixed(3)}
-                                                        {!committed && rseValue !== null && isFinite(rseValue) && (
-                                                            <span className="text-muted-foreground/50"> &plusmn;{rseValue.toFixed(1)}</span>
-                                                        )}
+                                                        {(() => {
+                                                            const sigma = !committed && model && predStandards !== null
+                                                                ? concentrationUncertainty(model, predicted, predStandards.xs, predStandards.ys) : null
+                                                            return sigma !== null && (
+                                                                <span className="text-muted-foreground/50" title="Typical scatter of the standards, in concentration units"> &plusmn;{sigma.toFixed(3)}</span>
+                                                            )
+                                                        })()}
                                                     </>
-                                                ) : '\u2014'}
+                                                ) : '-'}
                                             </td>
                                             <td className="p-1 w-6">
                                                 {committed && (
@@ -1211,7 +1265,7 @@ export function RegressionStudio() {
                                 <div key={ch} className="bg-card border rounded-lg p-3">
                                     <div className="flex items-center justify-between mb-2">
                                         <h4 className="text-xs font-semibold capitalize" style={{ color: channelColors[ch] }}>
-                                            {ch}{multiModelMode ? ' — Model Comparison' : ''}
+                                            {ch}{multiModelMode ? ' - Model Comparison' : ''}
                                         </h4>
                                         {!multiModelMode && regressionModels[ch] && (
                                             <span className="text-[10px] text-muted-foreground">
@@ -1223,7 +1277,7 @@ export function RegressionStudio() {
                                         <Scatter
                                             options={chartOptions(ch)}
                                             data={multiModelMode ? createMultiModelChartData(ch) : createChartData(ch)}
-                                            plugins={multiModelMode ? [] : [errorBarPlugin]}
+                                            plugins={[errorBarPlugin]}
                                         />
                                     </div>
                                 </div>
@@ -1233,7 +1287,7 @@ export function RegressionStudio() {
                     </div>
 
                     {/* Residual Plots */}
-                    {showResiduals && Object.keys(residualsData).length > 0 && (
+                    {showResiduals && activeCharts.some(ch => residualsData[ch]?.length) && (
                         <div className="mt-4 space-y-3">
                             <h3 className="text-xs font-semibold">Residual Plots</h3>
                             <div className={`grid gap-3 ${activeCharts.length <= 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
@@ -1253,7 +1307,7 @@ export function RegressionStudio() {
                                                             data: data.map(r => ({ x: r.concentration, y: r.residual })),
                                                             borderColor: channelColors[ch],
                                                             backgroundColor: data.map(r =>
-                                                                Math.abs(r.standardizedResidual) > 2 ? '#f59e0b' : channelColors[ch]
+                                                                r.isOutlier ? '#f59e0b' : channelColors[ch]
                                                             ),
                                                             pointRadius: 6,
                                                             showLine: false
