@@ -10,8 +10,10 @@ export function ColorAnalysisPanel() {
     const getColor = (rgb: [number, number, number]) =>
         rawRgbMode ? rgb : calibrateColor(rgb, colorCalibration)
 
-    const formatColor = (rgb: [number, number, number]) => {
-        const c = getColor(rgb)
+    // Takes a color that has already been passed through getColor - callers
+    // must not calibrate twice, or dark values clamp to 0 and the text
+    // disagrees with its swatch.
+    const formatColor = (c: [number, number, number]) => {
         switch (colorMode) {
             case 'RGB': return `R:${c[0]} G:${c[1]} B:${c[2]}`
             case 'CMYK': {
@@ -124,14 +126,14 @@ export function ColorAnalysisPanel() {
                                 </span>
                                 {/* Color values + stddev */}
                                 <span className="font-mono text-[11px] text-muted-foreground flex-1 min-w-0 truncate">
-                                    {formatColor(shape.color)}
+                                    {formatColor(c)}
                                     {shape.colorStdDev && (
                                         <span className="text-muted-foreground/50 ml-1">
                                             &plusmn;{shape.colorStdDev[0]}
                                         </span>
                                     )}
                                 </span>
-                                {/* Magnitude — right-aligned, teal accent */}
+                                {/* Magnitude - right-aligned, teal accent */}
                                 <span className="font-mono text-[11px] text-primary flex-shrink-0">
                                     &Sigma;{magnitude.toFixed(0)}
                                 </span>
