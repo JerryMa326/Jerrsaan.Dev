@@ -21,10 +21,10 @@ export async function waitForOpenCV(timeout = 10000): Promise<boolean> {
 function preprocessImage(mat: OpenCVMat, settings: DetectionSettings): void {
     const cv = window.cv!
 
-    // Apply brightness and contrast adjustment
-    // newPixel = contrast * oldPixel + brightness
+    // Apply brightness and contrast adjustment, the same way as the on-screen preview
+    // newPixel = contrast * (oldPixel - 128) + 128 + brightness
     if (settings.brightness !== 0 || settings.contrast !== 1.0) {
-        mat.convertTo(mat, -1, settings.contrast, settings.brightness)
+        mat.convertTo(mat, -1, settings.contrast, settings.brightness + 128 * (1 - settings.contrast))
     }
 
     // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
@@ -105,7 +105,7 @@ export function autoDetectCircles(
             circles,
             cv.HOUGH_GRADIENT,
             1, // dp
-            Math.min(canvas.width, canvas.height) / 8, // minDist between circles
+            Math.max(1, settings.minRadius * 2), // minDist between circles: wells never overlap
             settings.param1, // Canny edge threshold
             settings.param2, // Accumulator threshold
             settings.minRadius,
@@ -113,9 +113,6 @@ export function autoDetectCircles(
         )
 
         // Process detected circles
-        const labels = 'abcdefghijklmnopqrstuvwxyz'
-        let labelIndex = 0
-
         for (let i = 0; i < circles.cols; i++) {
             const localX = circles.data32F[i * 3]
             const localY = circles.data32F[i * 3 + 1]
@@ -125,21 +122,13 @@ export function autoDetectCircles(
             const x = localX + offsetX
             const y = localY + offsetY
 
-            // Get next available label
-            while (labelIndex < labels.length && existingLabels.has(labels[labelIndex])) {
-                labelIndex++
-            }
-            const label = labelIndex < labels.length ? labels[labelIndex] : `?${i + 1}`
-            existingLabels.add(label)
-            labelIndex++
-
             // Extract color from the center region (use local coordinates for the cropped canvas)
             const sampleRadius = Math.max(1, Math.floor(radius * settings.restrictedArea / 100))
             const color = extractAverageColor(ctx, localX, localY, sampleRadius)
 
             shapes.push({
                 id: uuidv4(),
-                label,
+                label: '', // set below, in reading order
                 type: 'circle',
                 x: Math.round(x),
                 y: Math.round(y),
@@ -155,7 +144,7 @@ export function autoDetectCircles(
         circles.delete()
     }
 
-    return shapes
+    return labelInReadingOrder(shapes, existingLabels)
 }
 
 export function autoDetectRectangles(
@@ -213,18 +202,20 @@ export function autoDetectRectangles(
 
         cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
-        const labels = 'abcdefghijklmnopqrstuvwxyz'
-        let labelIndex = 0
-
         for (let i = 0; i < contours.size(); i++) {
+            // contours.get() returns a new Mat that must be freed
             const contour = contours.get(i)
             const area = cv.contourArea(contour)
 
-            if (area < settings.minArea || area > settings.maxArea) continue
+            if (area < settings.minArea || area > settings.maxArea) {
+                contour.delete()
+                continue
+            }
 
             const perimeter = cv.arcLength(contour, true)
             const approx = new cv.Mat()
             cv.approxPolyDP(contour, approx, settings.epsilon * perimeter, true)
+            contour.delete()
 
             // Check if it's a quadrilateral (4 corners)
             if (approx.rows === 4) {
@@ -237,19 +228,12 @@ export function autoDetectRectangles(
                 // Check aspect ratio is roughly square-ish
                 const aspectRatio = rect.width / rect.height
                 if (aspectRatio > 0.5 && aspectRatio < 2.0) {
-                    while (labelIndex < labels.length && existingLabels.has(labels[labelIndex])) {
-                        labelIndex++
-                    }
-                    const label = labelIndex < labels.length ? labels[labelIndex] : `?${i + 1}`
-                    existingLabels.add(label)
-                    labelIndex++
-
                     // Use local coordinates for color extraction from cropped canvas
                     const color = extractAverageColorRect(ctx, rect.x, rect.y, rect.width, rect.height, settings.restrictedArea)
 
                     shapes.push({
                         id: uuidv4(),
-                        label,
+                        label: '', // set below, in reading order
                         type: 'rectangle',
                         x: globalX,
                         y: globalY,
@@ -272,7 +256,38 @@ export function autoDetectRectangles(
         hierarchy.delete()
     }
 
-    return shapes
+    return labelInReadingOrder(shapes, existingLabels)
+}
+
+/** Next free label: a-z first, then ?1, ?2, ... Skips labels already in use and marks the new one as used. */
+export function nextLabel(usedLabels: Set<string>): string {
+    for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
+        if (!usedLabels.has(letter)) {
+            usedLabels.add(letter)
+            return letter
+        }
+    }
+    let n = 1
+    while (usedLabels.has(`?${n}`)) n++
+    usedLabels.add(`?${n}`)
+    return `?${n}`
+}
+
+function wellRadius(shape: Shape): number {
+    return shape.radius ?? Math.min(shape.width ?? 0, shape.height ?? 0) / 2
+}
+
+/** Label shapes in reading order: top row first, left to right within a row. */
+export function labelInReadingOrder(shapes: Shape[], usedLabels: Set<string>): Shape[] {
+    const rows: Shape[][] = []
+    for (const shape of [...shapes].sort((a, b) => a.y - b.y)) {
+        const row = rows[rows.length - 1]
+        // Same row if it sits within one well radius below the row's first well
+        if (row && shape.y - row[0].y <= wellRadius(row[0])) row.push(shape)
+        else rows.push([shape])
+    }
+    return rows.flatMap(row => row.sort((a, b) => a.x - b.x))
+        .map(shape => ({ ...shape, label: nextLabel(usedLabels) }))
 }
 
 function extractAverageColor(

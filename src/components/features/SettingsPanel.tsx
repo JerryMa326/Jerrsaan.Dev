@@ -4,11 +4,13 @@ import { Circle, Square, Info, Crosshair, Trash2, Database, X } from 'lucide-rea
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useToast } from '@/components/ui/toast'
 import { hasCachedData, estimateCacheSize, formatBytes } from '@/lib/cacheUtils'
+import { applyBoundCommit, clampValueToBounds, widenBoundsToInclude, type SliderBoundsRange } from '@/lib/sliderBounds'
 
-function BoundInput({ value, onChange, className = '' }: {
+function BoundInput({ value, onChange, className = '', floor = 0 }: {
     value: number
     onChange: (v: number) => void
     className?: string
+    floor?: number
 }) {
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState(String(value))
@@ -20,9 +22,9 @@ function BoundInput({ value, onChange, className = '' }: {
     const commit = useCallback(() => {
         setEditing(false)
         const n = parseFloat(draft)
-        if (!isNaN(n) && n >= 0) onChange(n)
+        if (!isNaN(n) && n >= floor) onChange(n)
         else setDraft(String(value))
-    }, [draft, value, onChange])
+    }, [draft, value, onChange, floor])
 
     if (!editing) {
         return (
@@ -49,31 +51,65 @@ function BoundInput({ value, onChange, className = '' }: {
     )
 }
 
-function SliderWithBounds({ value, onChange, defaultMin, defaultMax, step = 1 }: {
+function SliderWithBounds({ value, onChange, defaultMin, defaultMax, step = 1, oddOnly = false, floor }: {
     value: number
     onChange: (v: number) => void
     defaultMin: number
     defaultMax: number
     step?: number
+    /** Restrict the value (and any typed bound) to the odd-integer grid, e.g. OpenCV blur kernel size. */
+    oddOnly?: boolean
+    /** Lowest value a typed bound may be set to. Defaults to 0 (unchanged for most sliders). */
+    floor?: number
 }) {
-    const [bounds, setBounds] = useState({ min: defaultMin, max: defaultMax })
+    // Seed from the current value too: the panel can mount after a value was
+    // already pushed past the defaults (crosshair calibration, cache restore).
+    const [bounds, setBounds] = useState<SliderBoundsRange>(() => widenBoundsToInclude({ min: defaultMin, max: defaultMax }, value))
+    // Tracks the last value this component itself produced (via the slider or
+    // a bound-commit clamp), so we can tell a pointer drag apart from a value
+    // that arrived from outside (crosshair calibration, cache restore).
+    const [lastEmitted, setLastEmitted] = useState(value)
 
-    // Auto-expand bounds if value exceeds them (e.g. set via crosshair calibration)
-    const effectiveMin = Math.min(bounds.min, value)
-    const effectiveMax = Math.max(bounds.max, value)
+    const boundOpts = { oddOnly, integer: Number.isInteger(step), floor }
+
+    // Auto-expand bounds only for values that arrive from outside this
+    // slider - never while the user is dragging the thumb or right after a
+    // bound commit clamped the value, both of which already go through
+    // `emit` below and update `lastEmitted` in the same render.
+    if (value !== lastEmitted) {
+        setLastEmitted(value)
+        const widened = widenBoundsToInclude(bounds, value)
+        if (widened !== bounds) setBounds(widened)
+    }
+
+    const emit = (v: number) => {
+        setLastEmitted(v)
+        onChange(v)
+    }
+
+    const commitBound = (key: 'min' | 'max', raw: number) => {
+        const next = applyBoundCommit(bounds, key, raw, boundOpts)
+        if (!next) return // would make min >= max: reject rather than freeze/invert the slider
+        setBounds(next)
+        const clamped = clampValueToBounds(value, next, { oddOnly })
+        if (clamped !== value) emit(clamped)
+    }
 
     return (
         <div className="space-y-0.5">
             <input
                 type="range"
-                min={effectiveMin} max={effectiveMax} step={step}
+                min={bounds.min} max={bounds.max} step={oddOnly ? 2 : step}
                 value={value}
-                onChange={e => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
+                onChange={e => {
+                    const raw = step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value)
+                    emit(oddOnly ? clampValueToBounds(raw, bounds, { oddOnly }) : raw)
+                }}
                 className="w-full"
             />
             <div className="flex justify-between">
-                <BoundInput value={bounds.min} onChange={v => setBounds(b => ({ ...b, min: v }))} />
-                <BoundInput value={bounds.max} onChange={v => setBounds(b => ({ ...b, max: v }))} />
+                <BoundInput value={bounds.min} floor={floor} onChange={v => commitBound('min', v)} />
+                <BoundInput value={bounds.max} floor={floor} onChange={v => commitBound('max', v)} />
             </div>
         </div>
     )
@@ -133,6 +169,8 @@ export function SettingsPanel() {
         calibrationMode,
         setCalibrationMode,
         images,
+        shapes,
+        committedPoints,
         colorCalibration,
         setColorCalibration,
         clearCache,
@@ -144,16 +182,28 @@ export function SettingsPanel() {
     const [cacheExists, setCacheExists] = useState(false)
     const [storageInfo, setStorageInfo] = useState<{ used: number; quota: number } | null>(null)
 
-    useEffect(() => {
+    const refreshCacheInfo = useCallback(() => {
         setCacheExists(hasCachedData())
         estimateCacheSize().then(info => setStorageInfo(info))
-    }, [isCacheLoaded])
+    }, [])
+
+    useEffect(() => {
+        refreshCacheInfo()
+    }, [isCacheLoaded, refreshCacheInfo])
+
+    // The app debounce-saves ~500ms after images/shapes/committedPoints
+    // change, so re-check shortly after: on a first visit this is what makes
+    // "No cached data" flip to "Cache active" without a page reload.
+    useEffect(() => {
+        const timer = setTimeout(refreshCacheInfo, 1000)
+        return () => clearTimeout(timer)
+    }, [images, shapes, committedPoints, refreshCacheInfo])
 
     const handleClearCache = async () => {
         setIsClearing(true)
         try {
             await clearCache()
-            setCacheExists(false)
+            refreshCacheInfo()
             toast('Cache cleared', 'success')
         } finally {
             setIsClearing(false)
@@ -166,7 +216,7 @@ export function SettingsPanel() {
 
     return (
         <div className="md:w-72 bg-card md:border-l border-border/50 flex flex-col h-full overflow-hidden">
-            {/* Header — desktop only */}
+            {/* Header - desktop only */}
             <div className="hidden md:block p-4 border-b border-border/50">
                 <h3 className="text-sm font-semibold">Detection Settings</h3>
             </div>
@@ -399,7 +449,7 @@ export function SettingsPanel() {
                         <SliderWithBounds
                             value={detectionSettings.brightness}
                             onChange={v => updateSetting('brightness', v)}
-                            defaultMin={-100} defaultMax={100} step={5}
+                            defaultMin={-100} defaultMax={100} step={5} floor={-100}
                         />
                     </div>
 
@@ -423,7 +473,7 @@ export function SettingsPanel() {
                         <SliderWithBounds
                             value={detectionSettings.blurKernelSize}
                             onChange={v => updateSetting('blurKernelSize', v)}
-                            defaultMin={3} defaultMax={15} step={2}
+                            defaultMin={3} defaultMax={15} step={2} oddOnly
                         />
                     </div>
 
