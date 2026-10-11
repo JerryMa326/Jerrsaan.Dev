@@ -6,7 +6,7 @@
  */
 
 import type { Shape, CommittedPoint, DetectionSettings } from '../types'
-import type { RegressionModel } from './regressionUtils'
+import type { RegressionModel, RegressionModelType } from './regressionUtils'
 import type { ColorCalibration } from './colorCalibration'
 
 // ============= IndexedDB for Images =============
@@ -38,6 +38,8 @@ interface CachedAppState {
     colorCalibration?: ColorCalibration
     heatmapMode?: boolean
     heatmapChannel?: string
+    modelType?: RegressionModelType | 'best'
+    excludedPoints?: string[]
 }
 
 let dbInstance: IDBDatabase | null = null

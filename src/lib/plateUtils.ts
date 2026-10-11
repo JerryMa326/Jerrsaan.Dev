@@ -123,6 +123,22 @@ function extractCircleColor(
     ]
 }
 
+// Split one line on the delimiter, keeping a "quoted, field" together
+function splitLine(line: string, delimiter: string): string[] {
+    const parts: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (const ch of line) {
+        if (ch === '"') inQuotes = !inQuotes
+        else if (ch === delimiter && !inQuotes) {
+            parts.push(current)
+            current = ''
+        } else current += ch
+    }
+    parts.push(current)
+    return parts
+}
+
 export function parseConcentrationCSV(text: string): { label: string; concentration: number }[] {
     // Strip BOM
     const cleaned = text.replace(/^\uFEFF/, '').trim()
@@ -137,7 +153,7 @@ export function parseConcentrationCSV(text: string): { label: string; concentrat
     const results: { label: string; concentration: number }[] = []
 
     for (let i = 0; i < lines.length; i++) {
-        const parts = lines[i].split(delimiter).map(p => p.trim().replace(/^["']|["']$/g, ''))
+        const parts = splitLine(lines[i], delimiter).map(p => p.trim().replace(/^["']|["']$/g, ''))
         if (parts.length < 2) continue
 
         const label = parts[0]
