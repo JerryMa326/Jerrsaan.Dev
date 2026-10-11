@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
     X, ChevronRight, ChevronLeft, Upload, Circle, Wand2,
@@ -104,6 +104,7 @@ interface TutorialProps {
 export function Tutorial({ onClose }: TutorialProps) {
     const [currentStep, setCurrentStep] = useState(0)
     const [highlightRect, setHighlightRect] = useState<DOMRect | null>(null)
+    const modalRef = useRef<HTMLDivElement>(null)
 
     const step = steps[currentStep]
     const isFirst = currentStep === 0
@@ -115,7 +116,11 @@ export function Tutorial({ onClose }: TutorialProps) {
 
         const update = () => {
             const el = document.querySelector(step.highlight!)
-            setHighlightRect(el ? el.getBoundingClientRect() : null)
+            const rect = el?.getBoundingClientRect()
+            // A hidden target (e.g. display:none on mobile) still matches the
+            // selector but reports a zero-size rect - treat that as no target
+            // so the modal centers instead of ringing the corner.
+            setHighlightRect(rect && rect.width > 0 && rect.height > 0 ? rect : null)
         }
 
         // Small delay so DOM settles after tab switches etc.
@@ -143,9 +148,25 @@ export function Tutorial({ onClose }: TutorialProps) {
     // Keyboard navigation
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose()
-            else if (e.key === 'ArrowRight' || e.key === 'Enter') handleNext()
-            else if (e.key === 'ArrowLeft') handlePrev()
+            if (e.key === 'Escape') { onClose(); return }
+            const target = e.target as HTMLElement | null
+            // When one of the tutorial's own buttons (Next, Back, Skip, X) has
+            // focus, Enter already triggers its click natively - handling it
+            // here too advanced two steps at once, or advanced AND closed when
+            // Skip/X had focus. A control outside the tutorial (e.g. the "?"
+            // button that opened it) keeps focus behind the overlay: suppress
+            // its native activation and advance instead.
+            const isOwnControl = !!target && !!modalRef.current?.contains(target)
+                && (target.tagName === 'BUTTON' || target.tagName === 'INPUT')
+            if (e.key === 'Enter') {
+                if (isOwnControl) return
+                e.preventDefault()
+                handleNext()
+            } else if (e.key === 'ArrowRight') {
+                handleNext()
+            } else if (e.key === 'ArrowLeft') {
+                handlePrev()
+            }
         }
         window.addEventListener('keydown', handler)
         return () => window.removeEventListener('keydown', handler)
@@ -153,15 +174,19 @@ export function Tutorial({ onClose }: TutorialProps) {
 
     // Compute modal position to avoid overlapping highlighted element
     const getModalStyle = (): React.CSSProperties => {
+        const pad = 16
+        const vw = window.innerWidth
+        // The real rendered width: capped at 420px, but never wider than the
+        // viewport minus side padding (so it matches the card's own margin
+        // instead of a fixed 420 that goes negative and clips on phones).
+        const modalWidth = Math.min(420, vw - pad * 2)
+
         if (!highlightRect) {
             // Center
-            return { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
+            return { top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: modalWidth }
         }
 
-        const pad = 16
-        const modalWidth = 420
         const modalHeight = 300 // approximate
-        const vw = window.innerWidth
         const vh = window.innerHeight
 
         // Prefer placing below the highlight
@@ -169,6 +194,7 @@ export function Tutorial({ onClose }: TutorialProps) {
             return {
                 top: highlightRect.bottom + pad,
                 left: Math.min(Math.max(pad, highlightRect.left), vw - modalWidth - pad),
+                width: modalWidth,
             }
         }
         // Above
@@ -176,6 +202,7 @@ export function Tutorial({ onClose }: TutorialProps) {
             return {
                 top: highlightRect.top - pad - modalHeight,
                 left: Math.min(Math.max(pad, highlightRect.left), vw - modalWidth - pad),
+                width: modalWidth,
             }
         }
         // Right
@@ -183,12 +210,14 @@ export function Tutorial({ onClose }: TutorialProps) {
             return {
                 top: Math.max(pad, highlightRect.top),
                 left: highlightRect.right + pad,
+                width: modalWidth,
             }
         }
         // Left
         return {
             top: Math.max(pad, highlightRect.top),
             left: Math.max(pad, highlightRect.left - pad - modalWidth),
+            width: modalWidth,
         }
     }
 
@@ -234,7 +263,7 @@ export function Tutorial({ onClose }: TutorialProps) {
             )}
 
             {/* Modal */}
-            <div className="absolute max-w-[420px] w-[calc(100%-2rem)] mx-4" style={getModalStyle()}>
+            <div ref={modalRef} className="absolute" style={getModalStyle()}>
                 <div className="bg-card border rounded-xl shadow-2xl overflow-hidden">
                     {/* Header */}
                     <div className="flex items-center justify-between p-4 border-b bg-muted/50">

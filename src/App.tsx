@@ -97,7 +97,7 @@ function App() {
       } else if (Date.now() - start > 15000) {
         setOpencvFailed(true)
         clearInterval(interval)
-        toast('OpenCV failed to load — auto-detection is unavailable. Check your internet connection and reload.', 'error')
+        toast('OpenCV failed to load - auto-detection is unavailable. Check your internet connection and reload.', 'error')
       }
     }, 500)
     return () => clearInterval(interval)
@@ -119,18 +119,31 @@ function App() {
     const imageFiles = files.filter(f => f.type.startsWith('image/'))
     if (imageFiles.length === 0) return
 
-    Promise.all(
+    Promise.allSettled(
       imageFiles.map(file => new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new Image()
+        const url = URL.createObjectURL(file)
         img.onload = () => resolve(img)
-        img.onerror = () => reject(new Error(`Failed to load ${file.name}`))
-        img.src = URL.createObjectURL(file)
+        img.onerror = () => {
+          URL.revokeObjectURL(url)
+          reject(new Error(file.name))
+        }
+        img.src = url
       }))
-    ).then(newImages => {
-      setImages(prev => [...prev, ...newImages])
-      toast(`Loaded ${newImages.length} image${newImages.length > 1 ? 's' : ''}`, 'success')
-    }).catch(err => {
-      toast(err.message || 'Failed to load one or more images', 'error')
+    ).then(results => {
+      const loaded: HTMLImageElement[] = []
+      const failedNames: string[] = []
+      for (const result of results) {
+        if (result.status === 'fulfilled') loaded.push(result.value)
+        else failedNames.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
+      }
+      if (loaded.length > 0) {
+        setImages(prev => [...prev, ...loaded])
+        toast(`Loaded ${loaded.length} image${loaded.length > 1 ? 's' : ''}`, 'success')
+      }
+      if (failedNames.length > 0) {
+        toast(`Could not load ${failedNames.length > 1 ? 'files' : 'file'}: ${failedNames.join(', ')}`, 'error')
+      }
     })
   }, [setImages, toast])
 
@@ -138,6 +151,7 @@ function App() {
     if (e.target.files) {
       loadImageFiles(Array.from(e.target.files))
     }
+    e.target.value = ''
   }
 
   // Drag and drop handlers
@@ -362,7 +376,7 @@ function App() {
 
       {/* ═══════════════════ HEADER ═══════════════════ */}
       <header className="flex h-11 items-center border-b border-border/40 bg-card shrink-0 z-50">
-        {/* Left — Brand */}
+        {/* Left - Brand */}
         <div className="flex items-center gap-2.5 px-3 md:px-4 shrink-0">
           <img src="/favicon-removebg-preview.png" alt="ChemClub" className="h-5 w-5" />
           <div className="flex items-center gap-1.5">
@@ -382,7 +396,7 @@ function App() {
           </div>
         </div>
 
-        {/* Center — Tabs */}
+        {/* Center - Tabs */}
         <nav className="flex items-end h-full flex-1 justify-center gap-1">
           {([['detect', 'Detection', ImageIcon], ['analyze', 'Regression', BarChart3]] as const).map(([key, label, Icon]) => (
             <button
@@ -403,7 +417,7 @@ function App() {
           ))}
         </nav>
 
-        {/* Right — Actions */}
+        {/* Right - Actions */}
         <div className="flex items-center gap-0.5 px-2 md:px-3 shrink-0">
           <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={() => fileInputRef.current?.click()}>
             <Upload className="h-3.5 w-3.5" /><span className="hidden md:inline">Load</span>
@@ -471,7 +485,7 @@ function App() {
               {!isGridView && (
                 <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 bg-card/95 backdrop-blur-lg border border-border/40 px-1 py-0.5 rounded-lg shadow-xl">
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handlePrevImage} disabled={currentImageIndex === 0}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-                  <span className="text-[10px] font-mono w-10 text-center text-muted-foreground">{images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '—'}</span>
+                  <span className="text-[10px] font-mono w-10 text-center text-muted-foreground">{images.length > 0 ? `${currentImageIndex + 1}/${images.length}` : '-'}</span>
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleNextImage} disabled={currentImageIndex >= images.length - 1}><ChevronRight className="h-3.5 w-3.5" /></Button>
                   <div className="w-px h-3.5 bg-border/40 mx-0.5" />
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleAutoDetect} disabled={images.length === 0 || isDetecting} data-tutorial="autodetect" title="Auto-detect">{isDetecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}</Button>
@@ -667,7 +681,7 @@ function App() {
         )}
       </main>
 
-      {/* Footer — desktop only */}
+      {/* Footer - desktop only */}
       <footer className="hidden md:flex h-5 items-center justify-center border-t border-border/30 text-[10px] font-mono text-muted-foreground/50 shrink-0">
         Created by: Hassaan Vani, Grady Chen, and Jerry Ma
       </footer>
