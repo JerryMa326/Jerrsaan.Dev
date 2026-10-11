@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { useApp } from '@/context/AppContext'
 import type { Shape } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
@@ -7,11 +7,69 @@ import { Button } from '@/components/ui/button'
 import { extractColorFromShape, extractColorStats, rgbToCmyk } from '@/lib/imageUtils'
 import { calibrateColor } from '@/lib/colorCalibration'
 import { isOpenCVReady } from '@/lib/opencvUtils'
-import { hitTestShape, getCursorForHit, type HitResult } from '@/hooks/useShapeDrag'
+import { hitTestShape, getCursorForHit, computeShapeDrag, type HitResult, type ShapeGeometry } from '@/hooks/useShapeDrag'
 import { computeHeatmapColor } from '@/lib/plateUtils'
+import { applyViewTransform, screenToImage, type ViewTransform } from '@/lib/viewTransform'
 import type { PlateOverlayState } from '@/types'
+import { resizePlateFromCorner, type PlateCorner } from '@/lib/plateOverlayDrag'
 
 type ColorChannel = 'red' | 'green' | 'blue' | 'cyan' | 'magenta' | 'yellow' | 'black' | 'magnitude'
+
+/** Brightness/contrast (and optional CLAHE) applied to a copy of the image, for the on-screen preview. */
+function renderPreprocessedPreview(
+    image: HTMLImageElement,
+    brightness: number,
+    contrast: number,
+    claheEnabled: boolean,
+    claheClipLimit: number
+): HTMLCanvasElement {
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width
+    canvas.height = image.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(image, 0, 0)
+
+    if (brightness !== 0 || contrast !== 1.0) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const data = imageData.data
+
+        for (let i = 0; i < data.length; i += 4) {
+            data[i] = Math.max(0, Math.min(255, contrast * (data[i] - 128) + 128 + brightness))
+            data[i + 1] = Math.max(0, Math.min(255, contrast * (data[i + 1] - 128) + 128 + brightness))
+            data[i + 2] = Math.max(0, Math.min(255, contrast * (data[i + 2] - 128) + 128 + brightness))
+        }
+        ctx.putImageData(imageData, 0, 0)
+    }
+
+    if (claheEnabled && isOpenCVReady()) {
+        const cv = window.cv!
+        let src: OpenCVMat | null = null
+        let gray: OpenCVMat | null = null
+        let dst: OpenCVMat | null = null
+        let clahe: OpenCVCLAHE | null = null
+        try {
+            src = cv.imread(canvas)
+            gray = new cv.Mat()
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+
+            clahe = new cv.CLAHE(claheClipLimit, new cv.Size(8, 8))
+            clahe.apply(gray, gray)
+
+            dst = new cv.Mat()
+            cv.cvtColor(gray, dst, cv.COLOR_GRAY2RGBA)
+            cv.imshow(canvas, dst)
+        } catch (e) {
+            console.warn('CLAHE preview failed:', e)
+        } finally {
+            clahe?.delete()
+            src?.delete()
+            gray?.delete()
+            dst?.delete()
+        }
+    }
+
+    return canvas
+}
 
 interface ImageViewerProps {
     plateOverlay?: PlateOverlayState | null
@@ -52,6 +110,8 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
     const [isTouchPanning, setIsTouchPanning] = useState(false)
     const [touchStartX, setTouchStartX] = useState(0)
     const [touchStartTime, setTouchStartTime] = useState(0)
+    // Whether the current touch sequence may still count as a swipe to the next/previous photo
+    const swipeCandidateRef = useRef(false)
     const [showPreprocessing, setShowPreprocessing] = useState(true)
 
     // Shape drag state
@@ -59,8 +119,10 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         shapeId: string
         hit: HitResult
         startPt: { x: number; y: number }
-        startShape: { x: number; y: number; width?: number; height?: number; radius?: number }
+        startShape: ShapeGeometry
     } | null>(null)
+    // In-progress drag geometry; committed to the shape (one undo step) on release
+    const [dragPreview, setDragPreview] = useState<{ shapeId: string; geometry: Partial<ShapeGeometry> } | null>(null)
 
     const [plateDragCorner, setPlateDragCorner] = useState<string | null>(null)
     const [plateDragStart, setPlateDragStart] = useState<{ x: number; y: number; overlay: PlateOverlayState } | null>(null)
@@ -72,58 +134,30 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         detectionSettings.claheEnabled ||
         detectionSettings.sharpenEnabled
 
-    const preprocessedImage = useMemo(() => {
-        if (!currentImage || !hasPreprocessing || !showPreprocessing) return null
-
-        const canvas = document.createElement('canvas')
-        canvas.width = currentImage.width
-        canvas.height = currentImage.height
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(currentImage, 0, 0)
-
-        if (detectionSettings.brightness !== 0 || detectionSettings.contrast !== 1.0) {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-            const data = imageData.data
-            const brightness = detectionSettings.brightness
-            const contrast = detectionSettings.contrast
-
-            for (let i = 0; i < data.length; i += 4) {
-                data[i] = Math.max(0, Math.min(255, contrast * (data[i] - 128) + 128 + brightness))
-                data[i + 1] = Math.max(0, Math.min(255, contrast * (data[i + 1] - 128) + 128 + brightness))
-                data[i + 2] = Math.max(0, Math.min(255, contrast * (data[i + 2] - 128) + 128 + brightness))
-            }
-            ctx.putImageData(imageData, 0, 0)
+    // Preprocessing preview, drawn straight from an offscreen canvas. While a
+    // slider is dragged it is recomputed at most once per frame, and the last
+    // result stays on screen until the new one is ready.
+    const [preprocessed, setPreprocessed] = useState<{ source: HTMLImageElement; canvas: HTMLCanvasElement } | null>(null)
+    useEffect(() => {
+        if (!currentImage || !hasPreprocessing || !showPreprocessing) {
+            // Let go of the full-size preview canvas while no preview is shown
+            const frame = requestAnimationFrame(() => setPreprocessed(null))
+            return () => cancelAnimationFrame(frame)
         }
-
-        if (detectionSettings.claheEnabled && isOpenCVReady()) {
-            try {
-                const cv = window.cv!
-                const src = cv.imread(canvas)
-                const gray = new cv.Mat()
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
-
-                const clahe = new cv.CLAHE(detectionSettings.claheClipLimit, new cv.Size(8, 8))
-                clahe.apply(gray, gray)
-                clahe.delete()
-
-                const dst = new cv.Mat()
-                cv.cvtColor(gray, dst, cv.COLOR_GRAY2RGBA)
-                cv.imshow(canvas, dst)
-
-                src.delete()
-                gray.delete()
-                dst.delete()
-            } catch (e) {
-                console.warn('CLAHE preview failed:', e)
-            }
-        }
-
-        const img = new Image()
-        img.src = canvas.toDataURL()
-        return img
+        const frame = requestAnimationFrame(() => {
+            setPreprocessed({
+                source: currentImage,
+                canvas: renderPreprocessedPreview(currentImage, detectionSettings.brightness, detectionSettings.contrast,
+                    detectionSettings.claheEnabled, detectionSettings.claheClipLimit)
+            })
+        })
+        return () => cancelAnimationFrame(frame)
     }, [currentImage, detectionSettings.brightness, detectionSettings.contrast,
         detectionSettings.claheEnabled, detectionSettings.claheClipLimit,
         hasPreprocessing, showPreprocessing])
+    const preprocessedImage = hasPreprocessing && showPreprocessing && preprocessed?.source === currentImage
+        ? preprocessed.canvas
+        : null
 
     const lastDetectionModeRef = useRef(detectionSettings.mode)
     useEffect(() => {
@@ -145,21 +179,32 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.code === 'Space' && !e.repeat) {
-                e.preventDefault()
-                setSpacePressed(true)
+            if (e.code !== 'Space' || e.repeat) return
+            // Leave Space alone for text fields, and for buttons reached with the keyboard.
+            // A button that merely kept focus after a mouse click (e.g. a tool button) still pans.
+            const target = e.target
+            if (target instanceof HTMLElement &&
+                (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+                    (target.tagName === 'BUTTON' && target.matches(':focus-visible')))) {
+                return
             }
+            e.preventDefault()
+            setSpacePressed(true)
         }
         const handleKeyUp = (e: KeyboardEvent) => {
             if (e.code === 'Space') {
                 setSpacePressed(false)
             }
         }
+        // A keyup that happens while the window is not focused never arrives
+        const handleBlur = () => setSpacePressed(false)
         window.addEventListener('keydown', handleKeyDown)
         window.addEventListener('keyup', handleKeyUp)
+        window.addEventListener('blur', handleBlur)
         return () => {
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
+            window.removeEventListener('blur', handleBlur)
         }
     }, [])
 
@@ -172,12 +217,13 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
         ctx.save()
-        ctx.translate(canvas.width / 2, canvas.height / 2)
-        ctx.rotate((rotationAngle * Math.PI) / 180)
-        ctx.scale(zoomLevel, zoomLevel)
-        ctx.translate(-currentImage.width / 2 + offset.x / zoomLevel, -currentImage.height / 2 + offset.y / zoomLevel)
+        applyViewTransform(ctx, {
+            canvasWidth: canvas.width, canvasHeight: canvas.height,
+            imageWidth: currentImage.width, imageHeight: currentImage.height,
+            zoom: zoomLevel, rotation: rotationAngle, offset
+        })
 
-        const displayImage = (preprocessedImage && preprocessedImage.complete) ? preprocessedImage : currentImage
+        const displayImage = preprocessedImage ?? currentImage
         ctx.drawImage(displayImage, 0, 0)
 
         if (boundingBox) {
@@ -200,7 +246,9 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             ctx.fillText('ROI', boundingBox.x + 4 / zoomLevel, boundingBox.y + 16 / zoomLevel)
         }
 
-        const currentShapes = shapes.filter(s => s.imageIndex === currentImageIndex)
+        const currentShapes = shapes
+            .filter(s => s.imageIndex === currentImageIndex)
+            .map(s => dragPreview && s.id === dragPreview.shapeId ? { ...s, ...dragPreview.geometry } : s)
 
         currentShapes.forEach(shape => {
             const isSelected = shape.id === selectedShapeId
@@ -347,7 +395,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const { template, x: px, y: py, width: pw, height: ph, rotation: plateRot, wellRadiusFactor: wrf } = plateOverlay
             const cellW = pw / template.cols
             const cellH = ph / template.rows
-            const r = Math.min(cellW, cellH) * (wrf ?? 0.38)
+            const r = Math.max(0, Math.min(cellW, cellH) * (wrf ?? 0.38))
             const plateCX = px + pw / 2
             const plateCY = py + ph / 2
             const plateRad = ((plateRot ?? 0) * Math.PI) / 180
@@ -428,56 +476,55 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         }
 
         ctx.restore()
-    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage, heatmapMode, heatmapChannel, rawRgbMode, colorCalibration, plateOverlay])
+    }, [currentImage, zoomLevel, rotationAngle, offset, shapes, currentImageIndex, currentDraftShape, isDrawing, drawingMode, detectionSettings.restrictedArea, selectedShapeId, boundingBox, preprocessedImage, heatmapMode, heatmapChannel, rawRgbMode, colorCalibration, plateOverlay, dragPreview])
 
     useEffect(() => {
         draw()
     }, [draw])
 
+    // Latest draw() for the resize observer, which is set up once
+    const drawRef = useRef(draw)
     useEffect(() => {
-        if (!preprocessedImage) return
-        const handler = () => draw()
-        preprocessedImage.addEventListener('load', handler)
-        return () => preprocessedImage.removeEventListener('load', handler)
-    }, [preprocessedImage, draw])
-
-    useEffect(() => {
-        const handleResize = () => {
-            if (containerRef.current && canvasRef.current) {
-                canvasRef.current.width = containerRef.current.clientWidth
-                canvasRef.current.height = containerRef.current.clientHeight
-                draw()
-            }
-        }
-        window.addEventListener('resize', handleResize)
-        handleResize()
-        return () => window.removeEventListener('resize', handleResize)
+        drawRef.current = draw
     }, [draw])
 
-    const getImagePoint = (e: React.MouseEvent) => {
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container) return
+        // Resizing a canvas clears it, so only touch width/height on a real size change
+        const syncSize = () => {
+            const canvas = canvasRef.current
+            if (!canvas) return
+            const w = container.clientWidth
+            const h = container.clientHeight
+            if (canvas.width === w && canvas.height === h) return
+            canvas.width = w
+            canvas.height = h
+            drawRef.current()
+        }
+        syncSize()
+        let frame = 0
+        const observer = new ResizeObserver(() => {
+            cancelAnimationFrame(frame)
+            frame = requestAnimationFrame(syncSize)
+        })
+        observer.observe(container)
+        return () => {
+            observer.disconnect()
+            cancelAnimationFrame(frame)
+        }
+    }, [])
+
+    const getImagePoint = (e: { clientX: number; clientY: number }) => {
         const canvas = canvasRef.current
         if (!canvas || !currentImage) return { x: 0, y: 0 }
         const rect = canvas.getBoundingClientRect()
-
-        const canvasX = e.clientX - rect.left
-        const canvasY = e.clientY - rect.top
-
-        const centerX = canvas.width / 2
-        const centerY = canvas.height / 2
-
-        let x = canvasX - centerX
-        let y = canvasY - centerY
-
-        const rad = (-rotationAngle * Math.PI) / 180
-        const cos = Math.cos(rad)
-        const sin = Math.sin(rad)
-        const rx = x * cos - y * sin
-        const ry = x * sin + y * cos
-
-        x = rx / zoomLevel + currentImage.width / 2 - offset.x / zoomLevel
-        y = ry / zoomLevel + currentImage.height / 2 - offset.y / zoomLevel
-
-        return { x, y }
+        const view: ViewTransform = {
+            canvasWidth: canvas.width, canvasHeight: canvas.height,
+            imageWidth: currentImage.width, imageHeight: currentImage.height,
+            zoom: zoomLevel, rotation: rotationAngle, offset
+        }
+        return screenToImage({ x: e.clientX - rect.left, y: e.clientY - rect.top }, view)
     }
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -538,17 +585,15 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
                 const hit = hitTestShape(pt, shape, zoomLevel)
                 if (hit) {
                     setSelectedShapeId(shape.id)
+                    // Rectangles drawn up/left may be stored with negative size; normalize
+                    const w = shape.width || 0, h = shape.height || 0
                     setShapeDragState({
                         shapeId: shape.id,
                         hit,
                         startPt: pt,
-                        startShape: {
-                            x: shape.x,
-                            y: shape.y,
-                            width: shape.width,
-                            height: shape.height,
-                            radius: shape.radius
-                        }
+                        startShape: shape.type === 'rectangle'
+                            ? { x: Math.min(shape.x, shape.x + w), y: Math.min(shape.y, shape.y + h), width: Math.abs(w), height: Math.abs(h) }
+                            : { x: shape.x, y: shape.y, radius: shape.radius }
                     })
                     return
                 }
@@ -583,62 +628,21 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
 
             if (plateDragCorner === 'body') {
                 setPlateOverlay({ ...plateOverlay, x: o.x + dx, y: o.y + dy })
-            } else if (plateDragCorner === 'tl') {
-                setPlateOverlay({ ...plateOverlay, x: o.x + dx, y: o.y + dy, width: o.width - dx, height: o.height - dy })
-            } else if (plateDragCorner === 'tr') {
-                setPlateOverlay({ ...plateOverlay, y: o.y + dy, width: o.width + dx, height: o.height - dy })
-            } else if (plateDragCorner === 'bl') {
-                setPlateOverlay({ ...plateOverlay, x: o.x + dx, width: o.width - dx, height: o.height + dy })
-            } else if (plateDragCorner === 'br') {
-                setPlateOverlay({ ...plateOverlay, width: o.width + dx, height: o.height + dy })
+            } else {
+                // Resize in the plate's rotated frame, keeping the opposite corner fixed
+                setPlateOverlay({ ...plateOverlay, ...resizePlateFromCorner(o, plateDragCorner as PlateCorner, dx, dy) })
             }
             return
         }
 
-        // Shape drag/resize
+        // Shape drag/resize (kept local until release)
         if (shapeDragState) {
             const pt = getImagePoint(e)
-            const dx = pt.x - shapeDragState.startPt.x
-            const dy = pt.y - shapeDragState.startPt.y
-            const s = shapeDragState.startShape
-
-            if (shapeDragState.hit === 'body') {
-                updateShape(shapeDragState.shapeId, { x: s.x + dx, y: s.y + dy })
-            } else if (shapeDragState.hit === 'edge') {
-                // Circle resize
-                const distFromCenter = Math.sqrt(
-                    (pt.x - s.x) ** 2 + (pt.y - s.y) ** 2
-                )
-                updateShape(shapeDragState.shapeId, { radius: Math.max(5, distFromCenter) })
-            } else if (shapeDragState.hit?.startsWith('corner-')) {
-                // Rectangle resize via corners
-                const corner = shapeDragState.hit
-                let newX = s.x, newY = s.y, newW = s.width || 0, newH = s.height || 0
-
-                if (corner === 'corner-br') {
-                    newW = (s.width || 0) + dx
-                    newH = (s.height || 0) + dy
-                } else if (corner === 'corner-bl') {
-                    newX = s.x + dx
-                    newW = (s.width || 0) - dx
-                    newH = (s.height || 0) + dy
-                } else if (corner === 'corner-tr') {
-                    newY = s.y + dy
-                    newW = (s.width || 0) + dx
-                    newH = (s.height || 0) - dy
-                } else if (corner === 'corner-tl') {
-                    newX = s.x + dx
-                    newY = s.y + dy
-                    newW = (s.width || 0) - dx
-                    newH = (s.height || 0) - dy
-                }
-
-                updateShape(shapeDragState.shapeId, {
-                    x: newX, y: newY,
-                    width: Math.max(10, newW),
-                    height: Math.max(10, newH)
-                })
-            }
+            const { hit, startShape, startPt } = shapeDragState
+            setDragPreview({
+                shapeId: shapeDragState.shapeId,
+                geometry: { ...startShape, ...computeShapeDrag(hit, startShape, startPt, pt) }
+            })
             return
         }
 
@@ -688,7 +692,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         }
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e?: React.MouseEvent) => {
         // Finalize plate drag
         if (plateDragCorner) {
             setPlateDragCorner(null)
@@ -696,24 +700,34 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             return
         }
 
-        // Finalize shape drag
+        // Finalize shape drag: one update (geometry + color), only if it moved
         if (shapeDragState) {
-            // Re-extract color after drag
-            if (currentImage) {
-                const shape = shapes.find(s => s.id === shapeDragState.shapeId)
-                if (shape) {
-                    const tempCanvas = document.createElement('canvas')
-                    tempCanvas.width = currentImage.width
-                    tempCanvas.height = currentImage.height
-                    const tempCtx = tempCanvas.getContext('2d')
-                    if (tempCtx) {
-                        tempCtx.drawImage(currentImage, 0, 0)
-                        const stats = extractColorStats(tempCtx, shape)
-                        updateShape(shape.id, { color: stats.mean, colorStdDev: stats.stdDev })
-                    }
+            const shape = shapes.find(s => s.id === shapeDragState.shapeId)
+            // Use the release point when there is one: the last mousemove may not have rendered yet
+            const { hit, startShape, startPt } = shapeDragState
+            const releasePt = e ? getImagePoint(e) : null
+            const geometry = releasePt
+                ? (releasePt.x === startPt.x && releasePt.y === startPt.y
+                    ? null
+                    : { ...startShape, ...computeShapeDrag(hit, startShape, startPt, releasePt) })
+                : dragPreview?.shapeId === shapeDragState.shapeId ? dragPreview.geometry : null
+            const start = shapeDragState.startShape
+            const moved = geometry && (Object.keys(geometry) as (keyof ShapeGeometry)[]).some(k => geometry[k] !== start[k])
+            if (shape && geometry && moved && currentImage) {
+                const tempCanvas = document.createElement('canvas')
+                tempCanvas.width = currentImage.width
+                tempCanvas.height = currentImage.height
+                const tempCtx = tempCanvas.getContext('2d')
+                if (tempCtx) {
+                    tempCtx.drawImage(currentImage, 0, 0)
+                    const stats = extractColorStats(tempCtx, { ...shape, ...geometry }, detectionSettings.restrictedArea / 100)
+                    updateShape(shape.id, { ...geometry, color: stats.mean, colorStdDev: stats.stdDev })
+                } else {
+                    updateShape(shape.id, geometry)
                 }
             }
             setShapeDragState(null)
+            setDragPreview(null)
             return
         }
 
@@ -792,14 +806,18 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
                 return
             }
 
+            // Normalize rectangles drawn up/left to a positive size
+            const isRect = drawingMode === 'rectangle'
+            const draftW = currentDraftShape.width || 0
+            const draftH = currentDraftShape.height || 0
             const newShape: Shape = {
                 id: uuidv4(),
                 label: getNextLabel(),
                 type: drawingMode as 'rectangle' | 'circle',
-                x: currentDraftShape.x!,
-                y: currentDraftShape.y!,
-                width: currentDraftShape.width,
-                height: currentDraftShape.height,
+                x: isRect && draftW < 0 ? currentDraftShape.x! + draftW : currentDraftShape.x!,
+                y: isRect && draftH < 0 ? currentDraftShape.y! + draftH : currentDraftShape.y!,
+                width: isRect ? Math.abs(draftW) : currentDraftShape.width,
+                height: isRect ? Math.abs(draftH) : currentDraftShape.height,
                 radius: currentDraftShape.radius,
                 color: [0, 0, 0],
                 imageIndex: currentImageIndex
@@ -811,7 +829,7 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const tempCtx = tempCanvas.getContext('2d')
             if (tempCtx) {
                 tempCtx.drawImage(currentImage, 0, 0)
-                const stats = extractColorStats(tempCtx, newShape)
+                const stats = extractColorStats(tempCtx, newShape, detectionSettings.restrictedArea / 100)
                 newShape.color = stats.mean
                 newShape.colorStdDev = stats.stdDev
             }
@@ -838,40 +856,32 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         return `#${num}`
     }
 
-    const handleWheel = (e: React.WheelEvent) => {
+    const handleWheel = (e: WheelEvent) => {
         e.preventDefault()
         const delta = -e.deltaY * 0.001
         const newZoom = Math.min(Math.max(0.1, zoomLevel + delta), 10)
         setZoomLevel(newZoom)
     }
 
-    const getTouchPoint = (touch: React.Touch) => {
+    // React's onWheel is passive, so preventDefault there cannot stop the page
+    // from zooming/scrolling too; register a non-passive listener instead.
+    const handleWheelRef = useRef(handleWheel)
+    useEffect(() => {
+        handleWheelRef.current = handleWheel
+    })
+    useEffect(() => {
         const canvas = canvasRef.current
-        if (!canvas || !currentImage) return { x: 0, y: 0 }
-        const rect = canvas.getBoundingClientRect()
+        if (!canvas) return
+        const onWheel = (e: WheelEvent) => handleWheelRef.current(e)
+        canvas.addEventListener('wheel', onWheel, { passive: false })
+        return () => canvas.removeEventListener('wheel', onWheel)
+    }, [])
 
-        const canvasX = touch.clientX - rect.left
-        const canvasY = touch.clientY - rect.top
-
-        const centerX = canvas.width / 2
-        const centerY = canvas.height / 2
-
-        let x = canvasX - centerX
-        let y = canvasY - centerY
-
-        const rad = (-rotationAngle * Math.PI) / 180
-        const cos = Math.cos(rad)
-        const sin = Math.sin(rad)
-        const rx = x * cos - y * sin
-        const ry = x * sin + y * cos
-
-        x = rx / zoomLevel + currentImage.width / 2 - offset.x / zoomLevel
-        y = ry / zoomLevel + currentImage.height / 2 - offset.y / zoomLevel
-
-        return { x, y }
-    }
+    const getTouchPoint = (touch: React.Touch) => getImagePoint(touch)
 
     const handleTouchStart = (e: React.TouchEvent) => {
+        // A second finger makes this sequence a pinch, never a swipe
+        if (e.touches.length !== 1) swipeCandidateRef.current = false
         if (e.touches.length === 2) {
             const dist = Math.hypot(
                 e.touches[0].clientX - e.touches[1].clientX,
@@ -883,6 +893,8 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
             const touch = e.touches[0]
             setTouchStartX(touch.clientX)
             setTouchStartTime(Date.now())
+            // Once zoomed in, a one-finger drag is a pan, not a photo swipe
+            swipeCandidateRef.current = zoomLevel <= 1
             if (drawingMode === 'none') {
                 setIsTouchPanning(true)
                 setDragStart({ x: touch.clientX - offset.x, y: touch.clientY - offset.y })
@@ -940,7 +952,9 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
         setIsTouchPanning(false)
 
         // Detect horizontal swipe to navigate images
-        if (drawingMode === 'none' && e.changedTouches.length === 1 && !shapeDragState) {
+        const swipeCandidate = swipeCandidateRef.current
+        if (e.touches.length === 0) swipeCandidateRef.current = false
+        if (swipeCandidate && e.touches.length === 0 && drawingMode === 'none' && e.changedTouches.length === 1 && !shapeDragState) {
             const dx = e.changedTouches[0].clientX - touchStartX
             const dt = Date.now() - touchStartTime
             const velocity = Math.abs(dx) / dt
@@ -975,7 +989,6 @@ export function ImageViewer({ plateOverlay, setPlateOverlay, onConfirmPlate }: I
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
