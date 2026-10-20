@@ -681,6 +681,8 @@ function App() {
         )}
       </main>
 
+      <a href="/beta/cielab-pls" className="fixed bottom-7 right-3 z-20 rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground">CIELAB + PLS Beta ↗</a>
+
       {/* Footer - desktop only */}
       <footer className="hidden md:flex h-5 items-center justify-center border-t border-border/30 text-[10px] font-mono text-muted-foreground/50 shrink-0">
         Created by: Hassaan Vani, Grady Chen, and Jerry Ma

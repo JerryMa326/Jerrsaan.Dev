@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "modelVersion": "skidmore-cielab-pls-v1",
+  "features": [
+    "L_mean",
+    "L_median",
+    "A_mean",
+    "A_median",
+    "B_mean",
+    "B_median"
+  ],
+  "coefficients": [
+    -0.012687013752358034,
+    -0.012861347720670935,
+    0.011403422105514593,
+    0.011335810232730559,
+    -0.008150113740812426,
+    -0.008126237165165584
+  ],
+  "intercept": 2.2009736320957884,
+  "targetTransform": "log1p/expm1",
+  "unit": "ppm",
+  "preprocessing": "jamie-training-export-v1-unverified-image-parity",
+  "featureProfile": {
+    "L_mean": {
+      "min": 9.64559593166849,
+      "median": 30.983188655969546,
+      "max": 63.892623948423655
+    },
+    "L_median": {
+      "min": 10.416533986357717,
+      "median": 31.053128781481977,
+      "max": 64.03125443275842
+    },
+    "A_mean": {
+      "min": 3.249337366544256,
+      "median": 28.857493522033472,
+      "max": 63.80003965730331
+    },
+    "A_median": {
+      "min": 3.284265493043545,
+      "median": 29.13100491956444,
+      "max": 64.0354096309445
+    },
+    "B_mean": {
+      "min": -91.91605467979132,
+      "median": -49.402534232865676,
+      "max": -7.888756907834248
+    },
+    "B_median": {
+      "min": -92.02065089468722,
+      "median": -50.59389318122511,
+      "max": -7.985099193604144
+    }
+  },
+  "training": {
+    "rows": 108,
+    "captures": 9,
+    "phones": 1,
+    "components": 1,
+    "min": 2,
+    "max": 100
+  },
+  "metrics": {
+    "mae": 11.226040646013807,
+    "rmse": 18.999498425663848,
+    "r2": 0.6504639382613748,
+    "log_mae": 0.28578173458941636,
+    "within_2x": 0.9166666666666666
+  },
+  "byConcentration": [
+    {
+      "concentration": 2.0,
+      "mae": 0.7938005029616653,
+      "mean_predicted": 2.501089808967355
+    },
+    {
+      "concentration": 4.0,
+      "mae": 1.1578437371879489,
+      "mean_predicted": 4.481398000822001
+    },
+    {
+      "concentration": 5.0,
+      "mae": 1.1919295608741243,
+      "mean_predicted": 4.813488621383575
+    },
+    {
+      "concentration": 6.0,
+      "mae": 1.0672218626594352,
+      "mean_predicted": 6.126192605179357
+    },
+    {
+      "concentration": 8.0,
+      "mae": 1.82268469070866,
+      "mean_predicted": 9.30680712421513
+    },
+    {
+      "concentration": 10.0,
+      "mae": 2.1358416993937115,
+      "mean_predicted": 11.281839810091075
+    },
+    {
+      "concentration": 20.0,
+      "mae": 11.807798757525374,
+      "mean_predicted": 31.807798757525372
+    },
+    {
+      "concentration": 40.0,
+      "mae": 19.088896549163735,
+      "mean_predicted": 55.361997472590105
+    },
+    {
+      "concentration": 50.0,
+      "mae": 14.993146212695384,
+      "mean_predicted": 58.950492108676585
+    },
+    {
+      "concentration": 60.0,
+      "mae": 12.647511810675987,
+      "mean_predicted": 59.28393146994204
+    },
+    {
+      "concentration": 80.0,
+      "mae": 19.501675481313214,
+      "mean_predicted": 62.045172464247926
+    },
+    {
+      "concentration": 100.0,
+      "mae": 48.50413688700646,
+      "mean_predicted": 51.49586311299354
+    }
+  ],
+  "caution": "Experimental model: nine captures from one phone. Error increases above 20 ppm; measured response overlaps or reverses at 80\u2013100 ppm. Low predictions can also represent underpredicted high-concentration samples.",
+  "parityMaxAbsoluteError": 2.3021584638627246e-12,
+  "checksum": "8640e940fba185bb2537714855b0688fa0b0e9ece0e57371c0696e31db50eb74"
+}
